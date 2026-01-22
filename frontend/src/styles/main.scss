@@ -1,0 +1,493 @@
+// Google Material 3 Design Style
+@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+// Material 3 Color Tokens
+$m3-primary: #1a73e8;
+$m3-on-primary: #ffffff;
+$m3-primary-container: #d3e3fd;
+$m3-on-primary-container: #041e49;
+
+$m3-secondary: #5f6368;
+$m3-on-secondary: #ffffff;
+$m3-secondary-container: #e8eaed;
+$m3-on-secondary-container: #1f1f1f;
+
+$m3-tertiary: #1e8e3e;
+$m3-error: #d93025;
+$m3-warning: #f9ab00;
+
+$m3-surface: #ffffff;
+$m3-surface-dim: #f8fafd;
+$m3-surface-bright: #ffffff;
+$m3-surface-container-lowest: #ffffff;
+$m3-surface-container-low: #f1f3f4;
+$m3-surface-container: #eceef1;
+$m3-surface-container-high: #e3e5e8;
+$m3-surface-container-highest: #dadce0;
+
+$m3-on-surface: #1f1f1f;
+$m3-on-surface-variant: #444746;
+$m3-outline: #747775;
+$m3-outline-variant: #c4c7c5;
+
+// Material 3 Elevation
+$m3-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 3px 1px rgba(0, 0, 0, 0.15);
+$m3-elevation-2: 0 1px 2px rgba(0, 0, 0, 0.3), 0 2px 6px 2px rgba(0, 0, 0, 0.15);
+$m3-elevation-3: 0 4px 8px 3px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.3);
+
+// Material 3 Shape - Large radius
+$m3-shape-xs: 4px;
+$m3-shape-sm: 8px;
+$m3-shape-md: 12px;
+$m3-shape-lg: 16px;
+$m3-shape-xl: 28px;
+$m3-shape-full: 9999px;
+
+body {
+  font-family: 'Roboto', 'Google Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: $m3-surface-dim;
+  color: $m3-on-surface;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+// Custom scrollbar - M3 style
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: $m3-outline-variant;
+  border-radius: $m3-shape-full;
+  
+  &:hover {
+    background: $m3-outline;
+  }
+}
+
+// Element Plus customization - Material 3 Style
+.el-card {
+  background: $m3-surface !important;
+  border: none !important;
+  border-radius: $m3-shape-lg !important;
+  box-shadow: $m3-elevation-1 !important;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+  
+  &:hover {
+    box-shadow: $m3-elevation-2 !important;
+  }
+  
+  .el-card__header {
+    border-bottom: 1px solid $m3-outline-variant;
+    color: $m3-on-surface;
+    font-weight: 500;
+    padding: 16px 24px;
+    font-size: 16px;
+  }
+  
+  .el-card__body {
+    color: $m3-on-surface-variant;
+    padding: 24px;
+  }
+}
+
+.el-table {
+  background: $m3-surface !important;
+  font-size: 14px;
+  border-radius: $m3-shape-md;
+  overflow: hidden;
+  
+  &::before {
+    display: none;
+  }
+  
+  th.el-table__cell {
+    background: $m3-surface-container-low !important;
+    color: $m3-on-surface-variant !important;
+    font-weight: 500 !important;
+    border-bottom: 1px solid $m3-outline-variant !important;
+    padding: 14px 0;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  
+  td.el-table__cell {
+    background: $m3-surface !important;
+    color: $m3-on-surface !important;
+    border-bottom: 1px solid $m3-surface-container-high !important;
+    padding: 14px 0;
+  }
+  
+  tr:hover > td.el-table__cell {
+    background: $m3-surface-container-low !important;
+  }
+}
+
+// M3 Buttons - Filled, Tonal, Outlined styles
+.el-button {
+  font-family: 'Roboto', sans-serif;
+  font-weight: 500;
+  border-radius: $m3-shape-full !important;
+  text-transform: none;
+  padding: 10px 24px !important;
+  height: 40px;
+  transition: all 0.2s ease;
+  
+  &--primary {
+    background: $m3-primary !important;
+    border-color: $m3-primary !important;
+    color: $m3-on-primary !important;
+    
+    &:hover, &:focus {
+      background: darken($m3-primary, 8%) !important;
+      border-color: darken($m3-primary, 8%) !important;
+      box-shadow: $m3-elevation-1;
+    }
+  }
+  
+  &--default {
+    background: $m3-surface !important;
+    border: 1px solid $m3-outline !important;
+    color: $m3-primary !important;
+    
+    &:hover, &:focus {
+      background: $m3-primary-container !important;
+      border-color: $m3-primary !important;
+    }
+  }
+}
+
+// M3 Filled Tonal Button style
+.el-button-group {
+  .el-button {
+    border-radius: 0 !important;
+    
+    &:first-child {
+      border-radius: $m3-shape-full 0 0 $m3-shape-full !important;
+    }
+    
+    &:last-child {
+      border-radius: 0 $m3-shape-full $m3-shape-full 0 !important;
+    }
+  }
+}
+
+.el-dialog {
+  background: $m3-surface !important;
+  border: none !important;
+  border-radius: $m3-shape-xl !important;
+  box-shadow: $m3-elevation-3 !important;
+  
+  .el-dialog__header {
+    border-bottom: none;
+    padding: 24px 24px 0;
+    
+    .el-dialog__title {
+      color: $m3-on-surface;
+      font-size: 24px;
+      font-weight: 400;
+    }
+  }
+  
+  .el-dialog__body {
+    color: $m3-on-surface-variant;
+    padding: 16px 24px;
+  }
+  
+  .el-dialog__footer {
+    padding: 16px 24px 24px;
+    
+    .el-button {
+      min-width: 80px;
+    }
+  }
+}
+
+.el-form-item__label {
+  color: $m3-on-surface-variant !important;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.el-input__wrapper {
+  background: $m3-surface !important;
+  border: 1px solid $m3-outline-variant !important;
+  border-radius: $m3-shape-xs !important;
+  box-shadow: none !important;
+  padding: 8px 16px !important;
+  
+  &:hover {
+    border-color: $m3-on-surface !important;
+  }
+  
+  &.is-focus {
+    border-color: $m3-primary !important;
+    border-width: 2px !important;
+    padding: 7px 15px !important;
+  }
+  
+  .el-input__inner {
+    color: $m3-on-surface !important;
+    font-size: 16px;
+  }
+}
+
+.el-select__wrapper {
+  background: $m3-surface !important;
+  border: 1px solid $m3-outline-variant !important;
+  box-shadow: none !important;
+  border-radius: $m3-shape-xs !important;
+  min-height: 40px;
+}
+
+// M3 Chips/Tags
+.el-tag {
+  border-radius: $m3-shape-sm !important;
+  font-weight: 500;
+  padding: 4px 12px;
+  height: 32px;
+  font-size: 14px;
+  
+  &.el-tag--success {
+    background: rgba($m3-tertiary, 0.12);
+    color: $m3-tertiary;
+    border: none !important;
+  }
+  
+  &.el-tag--warning {
+    background: rgba($m3-warning, 0.15);
+    color: darken($m3-warning, 15%);
+    border: none !important;
+  }
+  
+  &.el-tag--danger {
+    background: rgba($m3-error, 0.12);
+    color: $m3-error;
+    border: none !important;
+  }
+  
+  &.el-tag--info {
+    background: $m3-surface-container-high;
+    color: $m3-on-surface-variant;
+    border: none !important;
+  }
+  
+  &.el-tag--primary {
+    background: $m3-primary-container;
+    color: $m3-on-primary-container;
+    border: none !important;
+  }
+}
+
+.el-menu {
+  border: none !important;
+}
+
+.el-alert {
+  border-radius: $m3-shape-md !important;
+  border: none !important;
+}
+
+.el-checkbox {
+  &.is-bordered {
+    border-radius: $m3-shape-sm !important;
+    padding: 8px 16px 8px 12px !important;
+    height: 40px;
+  }
+}
+
+// Page title style - M3 Headline
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+  padding-bottom: 0;
+  border-bottom: none;
+  
+  h1 {
+    font-size: 28px;
+    font-weight: 400;
+    color: $m3-on-surface;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    letter-spacing: 0;
+    
+    .el-icon {
+      color: $m3-primary;
+      font-size: 28px;
+    }
+  }
+}
+
+// Gantt chart customization - M3 Light theme
+.gantt_container {
+  background: $m3-surface !important;
+  border-radius: $m3-shape-lg;
+  overflow: hidden;
+  border: none;
+  box-shadow: $m3-elevation-1;
+}
+
+.gantt_grid_scale,
+.gantt_task_scale {
+  background: $m3-surface-container-low !important;
+  color: $m3-on-surface-variant !important;
+  border-bottom: 1px solid $m3-outline-variant !important;
+}
+
+.gantt_grid_data,
+.gantt_task_bg {
+  background: $m3-surface !important;
+}
+
+.gantt_row,
+.gantt_task_row {
+  border-bottom: 1px solid $m3-surface-container-high !important;
+  
+  &:hover {
+    background: $m3-surface-container-low !important;
+  }
+}
+
+.gantt_tree_content {
+  color: $m3-on-surface !important;
+  font-weight: 400;
+}
+
+.gantt_task_line {
+  border-radius: $m3-shape-sm;
+  border: none !important;
+  
+  &.gantt_task_line_project {
+    background: $m3-primary;
+  }
+}
+
+.gantt_task_progress {
+  background: rgba(255, 255, 255, 0.4);
+  border-radius: $m3-shape-sm;
+}
+
+.gantt_link_arrow {
+  border-color: $m3-primary !important;
+}
+
+.gantt_task_link .gantt_line_wrapper div {
+  background-color: $m3-primary !important;
+}
+
+.gantt_scale_cell {
+  color: $m3-on-surface-variant !important;
+  border-right: 1px solid $m3-outline-variant !important;
+  font-weight: 500;
+  font-size: 12px;
+}
+
+.gantt_cell {
+  border-right: 1px solid $m3-surface-container-high !important;
+}
+
+// KPI Card - M3 Surface Container style
+.kpi-card {
+  background: $m3-surface;
+  border-radius: $m3-shape-lg;
+  padding: 20px 24px;
+  box-shadow: $m3-elevation-1;
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
+  border: none;
+  
+  &:hover {
+    box-shadow: $m3-elevation-2;
+    transform: translateY(-2px);
+  }
+  
+  &.kpi-primary .kpi-icon {
+    background: $m3-primary-container;
+    color: $m3-on-primary-container;
+  }
+  
+  &.kpi-success .kpi-icon {
+    background: rgba($m3-tertiary, 0.12);
+    color: $m3-tertiary;
+  }
+  
+  &.kpi-warning .kpi-icon {
+    background: rgba($m3-warning, 0.15);
+    color: darken($m3-warning, 15%);
+  }
+  
+  &.kpi-danger .kpi-icon {
+    background: rgba($m3-error, 0.12);
+    color: $m3-error;
+  }
+  
+  .kpi-title {
+    font-size: 14px;
+    color: $m3-on-surface-variant;
+    font-weight: 500;
+  }
+  
+  .kpi-value {
+    font-size: 36px;
+    font-weight: 400;
+    color: $m3-on-surface;
+    
+    &.primary { color: $m3-primary; }
+    &.success { color: $m3-tertiary; }
+    &.warning { color: darken($m3-warning, 10%); }
+    &.danger { color: $m3-error; }
+  }
+  
+  .kpi-unit {
+    font-size: 14px;
+    color: $m3-on-surface-variant;
+    margin-left: 4px;
+  }
+}
+
+// Filter card style
+.filter-card {
+  .el-card__body {
+    padding: 12px 24px !important;
+  }
+}
+
+// Progress bar M3 style
+.el-progress-bar__outer {
+  border-radius: $m3-shape-full !important;
+  background: $m3-surface-container-highest !important;
+}
+
+.el-progress-bar__inner {
+  border-radius: $m3-shape-full !important;
+}
+
+// Descriptions M3 style
+.el-descriptions {
+  .el-descriptions__label {
+    background: $m3-surface-container-low !important;
+    color: $m3-on-surface-variant !important;
+    font-weight: 500;
+  }
+  
+  .el-descriptions__content {
+    background: $m3-surface !important;
+    color: $m3-on-surface !important;
+  }
+}
