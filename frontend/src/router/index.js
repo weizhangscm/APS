@@ -64,6 +64,48 @@ const routes = [
     name: 'SetupMatrix',
     component: () => import('@/views/MasterData/SetupMatrix.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/ds',
+    name: 'DS',
+    component: () => import('@/views/DSView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/ds-scheduling',
+    name: 'DSScheduling',
+    component: () => import('@/views/DSSchedulingView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/ds-resource',
+    name: 'DSResource',
+    component: () => import('@/views/DSResourceView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/ds-product',
+    name: 'DSProduct',
+    component: () => import('@/views/DSProductView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/ds-routing',
+    name: 'DSRouting',
+    component: () => import('@/views/DSRoutingView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/ds-setup-matrix',
+    name: 'DSSetupMatrix',
+    component: () => import('@/views/DSSetupMatrixView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/ds-orders',
+    name: 'DSOrders',
+    component: () => import('@/views/DSOrdersView.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 

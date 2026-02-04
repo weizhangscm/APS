@@ -1,7 +1,7 @@
 <template>
   <div class="gantt-wrapper">
-    <!-- Zoom Controls -->
-    <div class="gantt-toolbar">
+    <!-- Toolbar - 可通过 hideToolbar prop 隐藏 -->
+    <div v-if="!props.hideToolbar" class="gantt-toolbar">
       <div class="zoom-controls">
         <el-button-group>
           <el-button @click="zoomIn" :disabled="currentZoom >= zoomLevels.length - 1">
@@ -52,6 +52,14 @@ const props = defineProps({
   viewType: {
     type: String,
     default: 'order'
+  },
+  strategy: {
+    type: String,
+    default: 'EDD'
+  },
+  hideToolbar: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -110,6 +118,23 @@ const zoomOut = () => {
 const initGantt = () => {
   if (!ganttContainer.value || isInitialized) return
   
+  // ========== 布局配置（必须在 init 之前设置）==========
+  // 配置带滚动条的布局
+  gantt.config.layout = {
+    css: "gantt_container",
+    rows: [
+      {
+        cols: [
+          { view: "grid", scrollX: "scrollHor", scrollY: "scrollVer" },
+          { resizer: true, width: 1 },
+          { view: "timeline", scrollX: "scrollHor", scrollY: "scrollVer" },
+          { view: "scrollbar", id: "scrollVer", scroll: "y" }
+        ]
+      },
+      { view: "scrollbar", id: "scrollHor", scroll: "x", height: 20 }
+    ]
+  }
+  
   // Configure gantt
   gantt.config.date_format = "%Y-%m-%d %H:%i"
   gantt.config.xml_date = "%Y-%m-%d %H:%i"
@@ -117,11 +142,12 @@ const initGantt = () => {
   // Initial scales
   gantt.config.scales = zoomLevels.value[currentZoom.value].scales
   
-  // Grid columns
+  // Grid columns - 根据视图类型设置第一列标题
+  const firstColumnLabel = props.viewType === 'product' ? '产品' : '任务名称'
   gantt.config.columns = [
-    { name: "text", label: "任务名称", tree: true, width: 260, resize: true },
+    { name: "text", label: firstColumnLabel, tree: true, width: 260, resize: true },
     { name: "start_date", label: "开始时间", align: "center", width: 130, resize: true },
-    { name: "duration", label: "时长(h)", align: "center", width: 70, 
+    { name: "duration", label: "时长(H)", align: "center", width: 70, 
       template: (task) => {
         if (task.start_date && task.end_date) {
           const hours = (task.end_date - task.start_date) / (1000 * 60 * 60)
@@ -314,6 +340,81 @@ const initGantt = () => {
       })
     }
   })
+
+  // ========== 联动拖拽逻辑（支持策略配置）==========
+  // 当拖动一个任务时，根据策略同步移动该订单的关联任务
+  gantt.attachEvent("onTaskDrag", (id, mode, task, original) => {
+    if (mode === "move") {
+      const diff = task.start_date.getTime() - original.start_date.getTime()
+      if (diff === 0) return
+
+      // 找到同一个订单的所有后续任务
+      const orderId = task.order_id
+      if (!orderId) return
+
+      const allTasks = gantt.getTaskByTime()
+      
+      // 根据策略决定联动逻辑
+      const strategy = props.strategy
+      
+      allTasks.forEach(t => {
+        // 属于同一个订单
+        if (t.order_id === orderId && t.id !== id) {
+          // 策略联动规则
+          let shouldMove = false
+          
+          // 所有策略都需要保持工序关系：后续工序跟随移动
+          if (t.sequence > task.sequence) {
+            shouldMove = true
+          }
+          
+          // 如果是 EDD (最早交期) 策略，检查是否会影响交期
+          if (strategy === 'EDD' && shouldMove) {
+            // EDD 策略下移动后续工序
+            shouldMove = true
+          }
+          
+          // 如果是 FIFO 策略，保持先进先出顺序
+          if (strategy === 'FIFO' && shouldMove) {
+            shouldMove = true
+          }
+          
+          if (shouldMove) {
+            t.start_date = new Date(t.start_date.getTime() + diff)
+            t.end_date = new Date(t.end_date.getTime() + diff)
+            gantt.updateTask(t.id)
+          }
+        }
+      })
+      
+      // 检测资源冲突
+      detectResourceConflicts(task)
+    }
+  })
+  
+  // 资源冲突检测函数
+  const detectResourceConflicts = (task) => {
+    if (!task.resource_id) return
+    
+    const allTasks = gantt.getTaskByTime()
+    const conflicts = []
+    
+    allTasks.forEach(t => {
+      if (t.id !== task.id && t.resource_id === task.resource_id) {
+        // 检查时间重叠
+        if (task.start_date < t.end_date && task.end_date > t.start_date) {
+          conflicts.push(t)
+        }
+      }
+    })
+    
+    if (conflicts.length > 0) {
+      // 标记冲突任务（可通过 CSS 类实现视觉提示）
+      task._conflict = true
+    } else {
+      task._conflict = false
+    }
+  }
   
   // Task click
   gantt.attachEvent("onTaskClick", (id, e) => {

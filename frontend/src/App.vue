@@ -45,6 +45,18 @@
               <el-icon><Document /></el-icon>
               <span>订单数据</span>
             </el-menu-item>
+            <el-sub-menu index="detailed-scheduling">
+              <template #title>
+                <el-icon><Operation /></el-icon>
+                <span>详细排程</span>
+              </template>
+              <el-menu-item index="/ds">详细计划表</el-menu-item>
+              <el-menu-item index="/ds-resource">DS资源</el-menu-item>
+              <el-menu-item index="/ds-product">DS产品</el-menu-item>
+              <el-menu-item index="/ds-routing">DS工艺路线</el-menu-item>
+              <el-menu-item index="/ds-setup-matrix">DS切换矩阵</el-menu-item>
+              <el-menu-item index="/ds-orders">DS订单数据</el-menu-item>
+            </el-sub-menu>
           </el-menu>
           
           <!-- 用户信息区域 -->

@@ -323,11 +323,14 @@ class GanttTask(BaseModel):
     order_id: Optional[int] = None
     operation_id: Optional[int] = None
     resource_id: Optional[int] = None
+    product_id: Optional[int] = None  # 产品ID - 用于按产品过滤
     status: Optional[str] = None
     color: Optional[str] = None
     task_type: Optional[str] = None  # "operation", "changeover", "project"
     order_type: Optional[str] = None  # "planned", "production"
+    order_status: Optional[str] = None  # 订单状态: "created", "scheduled", "in_progress", "completed", "cancelled"
     changeover_time: Optional[float] = None  # 切换时间（小时）
+    is_preview: bool = False  # 是否是预览模式下的临时数据
 
 
 class GanttLink(BaseModel):
@@ -340,6 +343,7 @@ class GanttLink(BaseModel):
 class GanttData(BaseModel):
     data: List[GanttTask]
     links: List[GanttLink]
+    has_unsaved_changes: bool = False  # 是否有未保存的排程更改
 
 
 # KPI Schemas
@@ -365,6 +369,68 @@ class KPIDashboard(BaseModel):
     order_kpi: OrderKPI
     avg_lead_time_hours: float
     capacity_load_by_day: dict
+
+
+# DS View Requests
+class ResourceRescheduleRequest(BaseModel):
+    resource_ids: List[int]
+    strategy: str
+
+
+class AutoPlanRequest(BaseModel):
+    plan_type: str  # "heuristic" or "optimizer"
+    heuristic_id: Optional[str] = None
+    optimizer_config: Optional[dict] = None
+    resource_ids: Optional[List[int]] = None
+
+
+class CancelPlanRequest(BaseModel):
+    """取消计划请求"""
+    resource_ids: Optional[List[int]] = None  # 要取消排程的资源ID列表
+    product_ids: Optional[List[int]] = None   # 要取消排程的产品ID列表
+
+
+class SavePlanRequest(BaseModel):
+    """保存计划请求"""
+    resource_ids: Optional[List[int]] = None  # 要保存排程的资源ID列表
+    product_ids: Optional[List[int]] = None   # 要保存排程的产品ID列表
+
+
+# 新增：联动调整工序请求
+class RescheduleWithLinksRequest(BaseModel):
+    operation_id: int
+    new_start: datetime
+    new_resource_id: Optional[int] = None
+    strategy: str = "EDD"
+    move_linked_operations: bool = True
+
+
+# 新增：资源利用率时间槽
+class UtilizationTimeSlot(BaseModel):
+    start: str
+    end: str
+    utilization: float
+
+
+# 新增：资源利用率数据
+class ResourceUtilizationData(BaseModel):
+    resource_id: int
+    resource_name: str
+    description: Optional[str] = None
+    capacity: float = 24
+    time_slots: List[UtilizationTimeSlot] = []
+
+
+# 新增：资源利用率响应
+class UtilizationResponse(BaseModel):
+    data: List[ResourceUtilizationData]
+
+
+# 新增：产品视图甘特图任务（包含产品ID）
+class GanttTaskWithProduct(GanttTask):
+    product_id: Optional[int] = None
+    product_name: Optional[str] = None
+    sequence: Optional[int] = None
 
 
 # ==================== Setup Matrix Schemas ====================

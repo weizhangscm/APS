@@ -80,13 +80,36 @@ def create_order(order: schemas.ProductionOrderCreate, db: Session = Depends(get
         models.RoutingOperation.routing_id == routing.id
     ).order_by(models.RoutingOperation.sequence).all()
     
+    # 工序名称到资源ID的映射（只针对钣金车间的工序需要特殊匹配）
+    # 其他工序使用工作中心的第一个资源作为默认值
+    OPERATION_NAME_TO_RESOURCE = {
+        # 钣金车间 (WC 2) - 需要根据工序名称匹配特定资源类型
+        '冲压下料': 7,      # 冲床-1
+        '折弯成型': 8,      # 折弯机-1
+        '焊接': 9,          # 焊接工位-1
+    }
+    
+    # 建立工作中心到第一个资源的映射（兜底逻辑）
+    all_resources = db.query(models.Resource).order_by(models.Resource.id).all()
+    work_center_to_first_resource = {}
+    for res in all_resources:
+        if res.work_center_id not in work_center_to_first_resource:
+            work_center_to_first_resource[res.work_center_id] = res.id
+    
     # Create operations for this order
     for routing_op in routing_ops:
         run_time = routing_op.setup_time + (routing_op.run_time_per_unit * order.quantity)
         
+        # 优先根据工序名称匹配资源，否则使用工作中心的第一个资源
+        default_resource_id = OPERATION_NAME_TO_RESOURCE.get(
+            routing_op.name, 
+            work_center_to_first_resource.get(routing_op.work_center_id)
+        )
+        
         db_operation = models.Operation(
             order_id=db_order.id,
             routing_operation_id=routing_op.id,
+            resource_id=default_resource_id,  # 预分配默认资源
             sequence=routing_op.sequence,
             name=routing_op.name,
             setup_time=routing_op.setup_time,

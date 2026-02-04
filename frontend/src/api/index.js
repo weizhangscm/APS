@@ -129,7 +129,34 @@ export const schedulingApi = {
     const params = orderIds ? { order_ids: orderIds.join(',') } : {}
     return api.get('/scheduling/validate', { params })
   },
-  getKPI: () => api.get('/scheduling/kpi')
+  getKPI: () => api.get('/scheduling/kpi'),
+  rescheduleResource: (data) => api.post('/scheduling/reschedule-resource', data),
+  autoPlan: (data) => api.post('/scheduling/auto-plan', data),
+  // 取消计划 - 根据资源和/或产品清除排程
+  cancelPlan: (resourceIds = null, productIds = null) => api.post('/scheduling/cancel-plan', {
+    resource_ids: resourceIds,
+    product_ids: productIds
+  }),
+  // 保存计划 - 将缓存的排程数据写入数据库
+  savePlan: (resourceIds = null, productIds = null) => api.post('/scheduling/save-plan', {
+    resource_ids: resourceIds,
+    product_ids: productIds
+  }),
+  // 丢弃计划 - 清除缓存的预览排程数据
+  discardPlan: () => api.post('/scheduling/discard-plan'),
+  // 获取缓存状态 - 检查是否有未保存的排程
+  getCacheStatus: () => api.get('/scheduling/cache-status'),
+  // 新增：获取资源利用率数据
+  getUtilizationData: (resourceIds = [], startDate = null, endDate = null, zoomLevel = 1) => {
+    const params = {}
+    if (resourceIds && resourceIds.length > 0) params.resource_ids = resourceIds.join(',')
+    if (startDate) params.start_date = startDate
+    if (endDate) params.end_date = endDate
+    params.zoom_level = zoomLevel  // 0=小时, 1=4小时, 2=天, 3=周, 4=月
+    return api.get('/scheduling/utilization', { params })
+  },
+  // 新增：联动调整工序（支持策略）
+  rescheduleWithLinks: (data) => api.post('/scheduling/reschedule-with-links', data)
 }
 
 // Setup Matrix APIs (切换矩阵)
