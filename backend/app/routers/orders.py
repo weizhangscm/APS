@@ -100,10 +100,13 @@ def create_order(order: schemas.ProductionOrderCreate, db: Session = Depends(get
     for routing_op in routing_ops:
         run_time = routing_op.setup_time + (routing_op.run_time_per_unit * order.quantity)
         
-        # 优先根据工序名称匹配资源，否则使用工作中心的第一个资源
-        default_resource_id = OPERATION_NAME_TO_RESOURCE.get(
-            routing_op.name, 
-            work_center_to_first_resource.get(routing_op.work_center_id)
+        # 优先使用工艺路线工序指定的资源，否则按工序名称匹配，否则用工作中心第一个资源
+        default_resource_id = (
+            getattr(routing_op, "resource_id", None)
+            or OPERATION_NAME_TO_RESOURCE.get(
+                routing_op.name,
+                work_center_to_first_resource.get(routing_op.work_center_id),
+            )
         )
         
         db_operation = models.Operation(

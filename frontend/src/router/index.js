@@ -32,7 +32,7 @@ const routes = [
   {
     path: '/orders',
     name: 'Orders',
-    component: () => import('@/views/Orders.vue'),
+    component: () => import('@/views/DSOrdersView.vue'),
     meta: { requiresAuth: true }
   },
   {

@@ -6,8 +6,11 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Tuple, Optional
 from sqlalchemy.orm import Session
 from collections import defaultdict
+import logging
 
 from .. import models
+
+logger = logging.getLogger(__name__)
 
 
 class SchedulingAlgorithm:
@@ -606,6 +609,11 @@ class StableForwardScheduler(SchedulingAlgorithm):
         
         # 步骤2: 确定性排序订单（保证稳定性）
         sorted_orders = self._stable_sort_orders(orders)
+        logger.info(
+            "[schedule_orders] sorting_rule=%s, sorted order (order_number, priority, id): %s",
+            getattr(self, 'sorting_rule', None),
+            [(o.order_number, o.priority, o.id) for o in sorted_orders]
+        )
         
         # 步骤3: 分离已排程和未排程订单
         # 注意：当指定了目标工序（target_operation_ids）时，即使 preserve_scheduled=True，
@@ -644,6 +652,16 @@ class StableForwardScheduler(SchedulingAlgorithm):
         else:
             unscheduled_orders = sorted_orders
         
+        logger.info(
+            "[schedule_orders] unscheduled_orders (will process in this order): %s",
+            [o.order_number for o in unscheduled_orders]
+        )
+        
+        # 步骤3.5: 若本次是“只排选中资源”的重排，先清除所有待排订单在 resource_slots 中的旧占位
+        # 否则 _load_existing_schedule 加载的 DB 占位会保留，第 3 个订单找槽位时会看到第 4～7 个订单的旧占位，被排到最后
+        if unscheduled_orders and self.target_operation_ids is not None:
+            self._clear_resource_slots_for_orders(unscheduled_orders)
+        
         # 步骤4: 逐个排程未排程的订单
         for order in unscheduled_orders:
             try:
@@ -659,6 +677,9 @@ class StableForwardScheduler(SchedulingAlgorithm):
                     if order_result.get('overload_resolved'):
                         results['overload_resolved'] += 1
                 results['details'].append(order_result)
+                # 立即终止：当某订单排程失败（找不到可用时间槽）时也停止后续订单
+                if not order_result.get('success') and getattr(self, 'error_handling', '立即终止') == '立即终止':
+                    break
             except Exception as e:
                 # 根据 error_handling 策略决定如何处理错误
                 error_handling = getattr(self, 'error_handling', '立即终止')
@@ -676,11 +697,11 @@ class StableForwardScheduler(SchedulingAlgorithm):
         return results
     
     def _load_existing_schedule(self):
-        """加载现有的已排程工序"""
+        """加载现有的已排程工序，包括生产订单"""
         end_date = datetime.now() + timedelta(days=self.planning_horizon)
         start_date = datetime.now() - timedelta(days=7)
         
-        # 调用父类方法加载资源负荷
+        # 调用父类方法加载已排程的计划订单工序（有 scheduled_start/end 的工序）
         self.load_resource_schedule(start_date, end_date)
         
         # 转换为资源时间段格式
@@ -689,6 +710,89 @@ class StableForwardScheduler(SchedulingAlgorithm):
                 self.resource_slots[resource_id].append(
                     (start, end, op_id, product_id, False)  # False = 非固定
                 )
+        
+        # 加载生产订单的资源占用
+        # 生产订单的工序没有 scheduled_start/end，但订单有 confirmed_start/end
+        # 需要根据订单的确认时间和工序的运行时间，计算每个工序占用的时间段
+        self._load_production_order_slots(start_date, end_date)
+    
+    def _clear_resource_slots_for_orders(self, orders: List[models.ProductionOrder]):
+        """清除这些订单在 resource_slots 中的旧占位，便于按排序顺序重新找槽位"""
+        op_ids_to_clear = set()
+        for order in orders:
+            for op in order.operations:
+                if op.resource_id and (op.scheduled_start or getattr(op, 'scheduled_end', None)):
+                    op_ids_to_clear.add(op.id)
+        if not op_ids_to_clear:
+            return
+        for resource_id in list(self.resource_slots.keys()):
+            old_slots = self.resource_slots[resource_id]
+            self.resource_slots[resource_id] = [
+                (s, e, oid, pid, fixed) for s, e, oid, pid, fixed in old_slots
+                if oid not in op_ids_to_clear
+            ]
+    
+    def _load_production_order_slots(self, start_date, end_date):
+        """加载生产订单的工序占用时间段
+        
+        生产订单的工序没有 scheduled_start/end，但订单有 confirmed_start/end。
+        按资源分组工序，在每个资源上按确认开始时间顺序排列工序。
+        """
+        # 获取在时间范围内的生产订单
+        production_orders = self.db.query(models.ProductionOrder).filter(
+            models.ProductionOrder.order_type == models.OrderType.PRODUCTION.value,
+            models.ProductionOrder.confirmed_start != None,
+            models.ProductionOrder.confirmed_end != None,
+            models.ProductionOrder.confirmed_start <= end_date,
+            models.ProductionOrder.confirmed_end >= start_date
+        ).all()
+        
+        # 按资源分组所有生产订单的工序
+        # {resource_id: [(confirmed_start, op, order), ...]}
+        resource_ops = defaultdict(list)
+        
+        for order in production_orders:
+            if not order.confirmed_start:
+                continue
+            for op in order.operations:
+                if op.resource_id and op.run_time and op.run_time > 0:
+                    resource_ops[op.resource_id].append((order.confirmed_start, op, order))
+        
+        # 对每个资源，按订单确认开始时间排序，依次分配时间段
+        for resource_id, ops_list in resource_ops.items():
+            # 按订单确认开始时间和工序序号排序
+            ops_list.sort(key=lambda x: (x[0], x[1].sequence))
+            
+            # 获取该资源上已有的时间段（来自已排程的计划订单）
+            existing_slots = sorted(self.resource_slots.get(resource_id, []), key=lambda x: x[0])
+            
+            # 从已有时间段中找到下一个可用时间
+            def get_next_available_time(after_time):
+                """找到 after_time 之后的下一个可用时间（不与已有时间段冲突）"""
+                candidate = after_time
+                for slot_start, slot_end, *_ in existing_slots:
+                    if slot_start < candidate + timedelta(hours=0.1) and slot_end > candidate:
+                        candidate = slot_end
+                return candidate
+            
+            # 按订单分组，同一订单的工序按顺序排列
+            current_time_by_order = {}  # {order_id: next_available_start}
+            
+            for confirmed_start, op, order in ops_list:
+                # 工序的开始时间：订单确认开始时间或上一个工序结束时间（取较晚的）
+                order_start = current_time_by_order.get(order.id, order.confirmed_start)
+                
+                op_start = order_start
+                op_duration = timedelta(hours=op.run_time)
+                op_end = op_start + op_duration
+                
+                # 添加为固定时间段（生产订单不可移动）
+                self.resource_slots[resource_id].append(
+                    (op_start, op_end, op.id, order.product_id, True)  # True = 固定
+                )
+                
+                # 更新该订单下一个工序的开始时间
+                current_time_by_order[order.id] = op_end
     
     def _mark_order_as_fixed(self, order: models.ProductionOrder):
         """将订单的所有工序标记为固定（不可移动）"""
@@ -777,32 +881,61 @@ class StableForwardScheduler(SchedulingAlgorithm):
             result['error'] = '订单没有工序'
             return result
         
-        # ========== 重新排程前，清除目标工序的旧时间槽 ==========
-        # 这是为了避免重新排程时产生冲突
+        # ========== 重新排程前，清除旧时间槽 ==========
+        # 目的：避免“旧占位”影响本次重排的找槽位结果。
+        #
+        # - 仅排选中资源时（target_operation_ids 不为空），传统做法只清目标工序（选中资源上的工序）。
+        # - 但当 订单内部关系=始终考虑 时，关联工序也会被重排；若不清关联工序的旧占位，会导致
+        #   旧占位仍被视为冲突，从而把本应排在显示区间起点的工序推迟到下一天（例如 3.2 → 3.3）。
+        selected_resource_ids = getattr(self, 'selected_resource_ids', None)
+        order_internal_relation = getattr(self, 'order_internal_relation', '不考虑')
         for op in operations:
+            if not (op.resource_id and op.scheduled_start and op.scheduled_end):
+                continue
+            
+            # 目标工序：在选中资源上且属于 target_operation_ids（若指定）
             is_target = (target_operation_ids is None or op.id in target_operation_ids)
-            if is_target and op.resource_id and op.scheduled_start and op.scheduled_end:
-                # 从 resource_slots 中移除此工序的旧时间槽
-                if op.resource_id in self.resource_slots:
-                    old_slots = self.resource_slots[op.resource_id]
-                    new_slots = [(s, e, oid, pid, f) for s, e, oid, pid, f in old_slots if oid != op.id]
-                    self.resource_slots[op.resource_id] = new_slots
+            is_on_selected_resource = (
+                selected_resource_ids is None or
+                (op.resource_id and op.resource_id in selected_resource_ids)
+            )
+            
+            # 清除条件：
+            # - 订单内部关系=始终考虑：清除本订单所有将被重排的工序的旧占位（目标 + 关联）
+            # - 否则：仅清除目标工序（避免影响未重排的关联工序）
+            should_clear = False
+            if order_internal_relation == '始终考虑':
+                should_clear = True
+            else:
+                should_clear = (is_target and is_on_selected_resource)
+            
+            if not should_clear:
+                continue
+            
+            if op.resource_id in self.resource_slots:
+                old_slots = self.resource_slots[op.resource_id]
+                self.resource_slots[op.resource_id] = [
+                    (s, e, oid, pid, fixed) for s, e, oid, pid, fixed in old_slots
+                    if oid != op.id
+                ]
         
         # ========== 确定期望日期（排程起点）==========
         now = datetime.now()
         expected_date_mode = getattr(self, 'expected_date_mode', '当前日期')
         direction = getattr(self, 'direction', 'forward')
+        expected_date_value = getattr(self, 'expected_date_value', None)  # 策略配置中选择的指定日期
         
         if expected_date_mode == '当前日期':
             # 使用当前日期作为期望日期
             desired_date = now
+        elif expected_date_mode == '指定日期' and expected_date_value is not None:
+            # 使用策略配置中选择的指定日期作为排程起点
+            desired_date = expected_date_value if isinstance(expected_date_value, datetime) else now
         else:
-            # 使用指定日期（订单的最早开始日期或交期）
+            # 使用指定日期但未传具体日期时：按订单的最早开始日期或交期
             if direction == 'forward':
-                # 向前排程：从最早开始日期开始
                 desired_date = order.earliest_start or now
             else:
-                # 向后排程：从交期开始
                 desired_date = order.due_date or (now + timedelta(days=30))
         
         # 处理积压：如果期望日期已过且是向前排程
@@ -893,9 +1026,8 @@ class StableForwardScheduler(SchedulingAlgorithm):
                     continue
             else:
                 # 工序没有分配资源，需要分配一个
-                # 但只能从选中的资源中选择（如果有选中资源限制）
-                if selected_resource_ids:
-                    # 只从选中的资源中选择
+                # 订单内部关系=始终考虑时，关联工序用该工作中心全部资源；否则仅从选中资源中选
+                if selected_resource_ids and not is_related_operation:
                     available = self.get_available_resources(work_center_id)
                     resources = [r for r in available if r.id in selected_resource_ids]
                 else:
@@ -1054,6 +1186,14 @@ class StableForwardScheduler(SchedulingAlgorithm):
             if slot_start is None:
                 continue
             
+            # 方案C：无限产能算出的槽位也须在显示区间内，超出则视为无槽位
+            display_end_date = getattr(self, 'display_end_date', None)
+            display_start_date = getattr(self, 'display_start_date', None)
+            if direction == 'forward' and display_end_date and slot_end and slot_end > display_end_date:
+                continue
+            if direction == 'backward' and display_start_date and slot_start and slot_start < display_start_date:
+                continue
+            
             # ========== 计算成本函数 ==========
             # 成本 = 延迟/提前时间 + 切换时间权重 + 负荷均衡权重
             if direction == 'forward':
@@ -1106,6 +1246,7 @@ class StableForwardScheduler(SchedulingAlgorithm):
         向后查找资源的可用时间段（从交期向前搜索）
         
         用于向后排程（backward scheduling），从交期开始向过去搜索空闲时间段。
+        方案C：工序开始时间不得早于显示区间开始，否则不排程。
         
         Args:
             resource_id: 资源ID
@@ -1115,40 +1256,49 @@ class StableForwardScheduler(SchedulingAlgorithm):
         Returns:
             (开始时间, 结束时间) 或 (None, None)
         """
+        display_start_date = getattr(self, 'display_start_date', None)
+        
         if not self.finite_capacity:
-            # 无限产能模式：直接返回
+            # 无限产能模式：若早于显示区间开始则不排程
             slot_end = latest_end
             slot_start = latest_end - timedelta(hours=duration_hours)
+            if display_start_date and slot_start < display_start_date:
+                return None, None
             return slot_start, slot_end
         
         slots = sorted(self.resource_slots.get(resource_id, []), key=lambda x: x[0], reverse=True)
         
-        # 从最晚结束时间开始向前搜索
         current_end = latest_end
         duration = timedelta(hours=duration_hours)
         
-        # 计划范围的最早时间（不能排到过去太远）
+        # 计划范围的最早时间；方案C：不得早于显示区间开始
         earliest_allowed = datetime.now() - timedelta(days=7)
+        if display_start_date:
+            earliest_allowed = max(earliest_allowed, display_start_date)
         
         for slot_start, slot_end, op_id, product_id, is_fixed in slots:
             if slot_end <= earliest_allowed:
                 break
             
-            # 检查当前时间段和已占用时间段之间的间隙
             if slot_end <= current_end:
                 gap = current_end - slot_end
                 if gap >= duration:
-                    # 找到足够大的间隙
-                    return (current_end - duration, current_end)
-                # 移动到这个时间段之前继续搜索
+                    start = current_end - duration
+                    if display_start_date and start < display_start_date:
+                        return None, None
+                    return (start, current_end)
                 current_end = slot_start
         
-        # 检查最后一个间隙（从最早时间到第一个占用时间段）
         if current_end - earliest_allowed >= duration:
+            start = current_end - duration
+            if display_start_date and start < display_start_date:
+                return None, None
             return (current_end - duration, current_end)
         
-        # 如果没有找到间隙，使用最早可用时间
         if current_end >= earliest_allowed + duration:
+            start = current_end - duration
+            if display_start_date and start < display_start_date:
+                return None, None
             return (current_end - duration, current_end)
         
         return None, None
@@ -1189,10 +1339,15 @@ class StableForwardScheduler(SchedulingAlgorithm):
         - 精确到秒的时间连续排程
         - 工序可以跨越工作时间边界
         - 非工作时间（夜间、周末）会被跳过，工序自动延续到下一个工作日
+        - 方案C：工序结束时间不得超过显示区间结束，否则不排程
         """
+        display_end_date = getattr(self, 'display_end_date', None)
+        
         if not self.finite_capacity:
-            # 无限产能模式
+            # 无限产能模式：若超出显示区间则不排程
             end_time = earliest_start + timedelta(hours=duration_hours)
+            if display_end_date and end_time > display_end_date:
+                return None, None
             return earliest_start, end_time
         
         capacity_per_day = self.get_resource_capacity(resource_id)
@@ -1207,38 +1362,41 @@ class StableForwardScheduler(SchedulingAlgorithm):
         while iteration < max_iterations:
             iteration += 1
             
+            # 方案C：候选开始时间已超过显示区间结束则不再排程
+            if display_end_date and candidate_start >= display_end_date:
+                return None, None
+            
             # 检查candidate_start是否与现有时间段冲突
             conflict_end = None
             for s, e, _, _, _ in existing_slots:
                 if s <= candidate_start < e:
-                    # 开始时间在某个已排程时间段内，需要移动到该时间段之后
                     conflict_end = e
                     break
             
             if conflict_end:
-                # 移动到冲突时间段之后，并确保在工作时间内
                 candidate_start = self._get_next_working_time(conflict_end, capacity_per_day)
                 continue
             
             # 计算工序的实际结束时间（考虑非工作时间）
             candidate_end = self._calculate_end_time(candidate_start, duration_hours, capacity_per_day)
             
+            # 方案C：工序结束时间不得超过显示区间结束
+            if display_end_date and candidate_end > display_end_date:
+                return None, None
+            
             # 检查整个工序时间段是否与现有排程冲突
             has_conflict = False
             for s, e, _, _, _ in existing_slots:
                 if s < candidate_end and e > candidate_start:
-                    # 有重叠，需要移动到该时间段之后
                     has_conflict = True
                     candidate_start = self._get_next_working_time(e, capacity_per_day)
                     break
             
             if not has_conflict:
-                # 找到了可用时间段
                 return candidate_start, candidate_end
         
-        # 如果找不到可用时间段，回退到最早开始时间（无限产能模式）
-        end_time = earliest_start + timedelta(hours=duration_hours)
-        return earliest_start, end_time
+        # 找不到显示区间内的可用时间段，不排到区间外
+        return None, None
     
     def _get_next_working_time(self, dt: datetime, capacity_per_day: float) -> datetime:
         """

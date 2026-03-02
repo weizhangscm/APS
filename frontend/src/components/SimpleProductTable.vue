@@ -66,7 +66,7 @@
       
       <!-- 右侧甘特条区域 -->
       <div class="right-content" ref="rightContentRef" @scroll="handleRightScroll">
-        <div class="gantt-rows">
+        <div class="gantt-rows" :style="{ width: totalWidth + 'px' }">
           <div 
             v-for="item in flattenedData" 
             :key="item.id" 
@@ -89,7 +89,6 @@
                 :style="getTaskStyleFromRange(range)"
                 :title="`${item.text}\n开始: ${formatDate(range.start_date)}\n结束: ${formatDate(range.end_date)}`"
               >
-                <span v-if="rangeIndex === 0" class="task-label">{{ item.text }}</span>
               </div>
             </template>
             
@@ -101,7 +100,6 @@
               :style="getTaskStyle(item)"
               :title="`${item.text}\n开始: ${formatDate(item.start_date)}\n结束: ${formatDate(item.end_date)}`"
             >
-              <span class="task-label">{{ item.text }}</span>
             </div>
           </div>
         </div>
@@ -340,12 +338,14 @@ const flattenedData = computed(() => {
   return result
 })
 
-// 计算总时长
+// 计算总时长：优先用作业时间 work_hours（与排程前一致）
 const calculateTotalDuration = (children) => {
   if (!children || children.length === 0) return '-'
   let totalHours = 0
   children.forEach(child => {
-    if (child.start_date && child.end_date) {
+    if (child.work_hours != null && child.work_hours >= 0) {
+      totalHours += child.work_hours
+    } else if (child.start_date && child.end_date) {
       const start = new Date(child.start_date)
       const end = new Date(child.end_date)
       totalHours += (end - start) / (1000 * 60 * 60)
@@ -354,8 +354,9 @@ const calculateTotalDuration = (children) => {
   return totalHours > 0 ? totalHours.toFixed(1) : '-'
 }
 
-// 计算单个任务时长
+// 计算单个任务时长：优先用 work_hours
 const calculateDuration = (item) => {
+  if (item.work_hours != null && item.work_hours >= 0) return Number(item.work_hours).toFixed(1)
   if (!item.start_date || !item.end_date) return '-'
   const start = new Date(item.start_date)
   const end = new Date(item.end_date)
@@ -394,7 +395,11 @@ const timeAxis = computed(() => {
   }
   
   const [startStr, endStr] = props.dateRange
-  return generateTimeAxis(new Date(startStr), new Date(endStr))
+  const startDate = new Date(startStr)
+  const endDate = new Date(endStr)
+  // 确保结束日期包含当天的最后时刻
+  endDate.setHours(23, 59, 59, 999)
+  return generateTimeAxis(startDate, endDate)
 })
 
 const generateTimeAxis = (start, end) => {
@@ -413,6 +418,11 @@ const generateTimeAxis = (start, end) => {
   
   return days
 }
+
+// 计算甘特图总宽度
+const totalWidth = computed(() => {
+  return timeAxis.value.length * dayWidth.value
+})
 
 // 计算当前时间线位置
 const currentTimePosition = computed(() => {
@@ -518,8 +528,8 @@ const getTaskClass = (item) => {
     classes.push('changeover-bar')
   }
   
-  // 已排程订单添加红色边框
-  if (item.order_status === 'scheduled') {
+  // 仅对已保存到数据库的已排程工序显示红色边框（未保存的启发式结果不显示红框）
+  if (item.order_status === 'scheduled' && item.status !== 'pending' && !item.is_preview) {
     classes.push('scheduled-order')
   }
   

@@ -112,8 +112,8 @@
         </el-table-column>
         <el-table-column label="状态" min-width="80" align="center">
           <template #default="{ row }">
-            <el-tag :type="getStatusType(row.status)" size="small">
-              {{ getStatusLabel(row.status) }}
+            <el-tag :type="getStatusType(getDisplayOrderStatus(row))" size="small">
+              {{ getStatusLabel(getDisplayOrderStatus(row)) }}
             </el-tag>
           </template>
         </el-table-column>
@@ -133,7 +133,7 @@
                 @click="handleEdit(row)"
               >编辑</el-button>
               <el-button 
-                v-if="row.order_type === 'planned' && row.status === 'scheduled'" 
+                v-if="row.order_type === 'planned' && getDisplayOrderStatus(row) === 'scheduled'" 
                 type="primary" 
                 size="small"
                 @click="handleConvertToProduction(row)"
@@ -250,8 +250,8 @@
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="状态">
-          <el-tag :type="getStatusType(currentOrder.status)" size="small">
-            {{ getStatusLabel(currentOrder.status) }}
+          <el-tag :type="getStatusType(orderStatusInOpsDialog)" size="small">
+            {{ getStatusLabel(orderStatusInOpsDialog) }}
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="交货期">{{ formatDate(currentOrder.due_date) }}</el-descriptions-item>
@@ -502,6 +502,15 @@ const convertForm = ref({
 // Operations dialog
 const opsDialogVisible = ref(false)
 const currentOrder = ref(null)
+// 订单工序弹窗中显示的订单状态：若有任一工序为待排程，则订单显示为待排程
+const orderStatusInOpsDialog = computed(() => {
+  const order = currentOrder.value
+  if (!order) return 'created'
+  const ops = order.operations || []
+  if (ops.length === 0) return order.status
+  const hasPending = ops.some(op => op.status === 'pending')
+  return hasPending ? 'created' : order.status
+})
 
 const formatDate = (date) => {
   return date ? dayjs(date).format('YYYY-MM-DD') : ''
@@ -537,6 +546,15 @@ const getStatusLabel = (status) => {
     cancelled: '已取消'
   }
   return labels[status] || status
+}
+
+// 根据工序状态推导订单显示状态：若有任一工序为待排程，则订单显示为待排程
+const getDisplayOrderStatus = (order) => {
+  if (!order) return 'created'
+  const ops = order.operations || []
+  if (ops.length === 0) return order.status
+  const hasPending = ops.some(op => op.status === 'pending')
+  return hasPending ? 'created' : order.status
 }
 
 const getOpStatusType = (status) => {

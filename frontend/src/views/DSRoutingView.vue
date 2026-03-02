@@ -1,5 +1,18 @@
 <template>
   <div class="master-data-page">
+    <!-- 筛选状态提示 -->
+    <div v-if="dsFiltersStore.selectedProductIds.length > 0" class="filter-hint">
+      <el-icon><Filter /></el-icon>
+      <span>已关联"详细计划表"筛选条件，显示 {{ routings.length }} 条工艺路线</span>
+      <el-tag v-for="name in dsFiltersStore.selectedProductNames.slice(0, 3)" :key="name" size="small" type="info" class="filter-tag">
+        {{ name }}
+      </el-tag>
+      <span v-if="dsFiltersStore.selectedProductNames.length > 3" class="more-hint">
+        等 {{ dsFiltersStore.selectedProductNames.length }} 个产品
+      </span>
+      <el-button type="primary" link size="small" @click="goToDetailedPlan">修改筛选</el-button>
+    </div>
+    
     <div class="page-header">
       <h1>
         <el-icon><Share /></el-icon>
@@ -104,9 +117,9 @@
       <el-table :data="currentRouting?.operations || []" size="small" table-layout="auto">
         <el-table-column prop="sequence" label="顺序" min-width="70" align="center" />
         <el-table-column prop="name" label="工序名称" min-width="120" />
-        <el-table-column label="工作中心" min-width="100">
+        <el-table-column label="资源" min-width="120">
           <template #default="{ row }">
-            {{ getResourceName(row.work_center_id) }}
+            {{ getResourceDisplayName(row) }}
           </template>
         </el-table-column>
         <el-table-column prop="setup_time" label="准备时间(h)" min-width="100" align="right">
@@ -143,13 +156,13 @@
         <el-form-item label="工序名称" prop="name">
           <el-input v-model="opForm.name" placeholder="请输入工序名称" />
         </el-form-item>
-        <el-form-item label="工作中心" prop="work_center_id">
-          <el-select v-model="opForm.work_center_id" placeholder="请选择工作中心" style="width: 100%">
+        <el-form-item label="资源" prop="resource_id">
+          <el-select v-model="opForm.resource_id" placeholder="请选择资源（与 DS资源 一致）" style="width: 100%">
             <el-option 
-              v-for="wc in workCenters" 
-              :key="wc.id" 
-              :label="wc.name" 
-              :value="wc.id" 
+              v-for="r in resources" 
+              :key="r.id" 
+              :label="`${r.code || ''} - ${r.name}`" 
+              :value="r.id" 
             />
           </el-select>
         </el-form-item>
@@ -173,26 +186,45 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Filter } from '@element-plus/icons-vue'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useDSFiltersStore } from '@/stores/dsFilters'
 
+const router = useRouter()
 const store = useMasterDataStore()
 const dsFiltersStore = useDSFiltersStore()
 
 const loading = computed(() => store.loading)
 
-// 工艺路线列表（全部数据，DS工艺路线是数据源）
-const routings = computed(() => store.routings || [])
+// 根据详细计划表筛选条件过滤后的工艺路线列表
+const routings = computed(() => {
+  const allRoutings = store.routings || []
+  const selectedProductIds = dsFiltersStore.selectedProductIds
+  
+  // 如果详细计划表没有选择产品，显示所有工艺路线
+  if (!selectedProductIds || selectedProductIds.length === 0) {
+    return allRoutings
+  }
+  // 否则只显示选中产品的工艺路线
+  return allRoutings.filter(r => selectedProductIds.includes(r.product_id))
+})
 const products = computed(() => store.products)
-const workCenters = computed(() => store.workCenters)
 const resources = computed(() => store.resources)
 
-// 根据工作中心ID获取对应的资源名称
-const getResourceName = (workCenterId) => {
-  if (!workCenterId) return '-'
-  const res = resources.value.find(r => r.work_center_id === workCenterId)
-  return res?.name || '-'
+// 工序表中显示资源名称：优先 resource / resource_id（与 DS资源 一致），否则按 work_center_id 取第一个
+const getResourceDisplayName = (row) => {
+  if (row.resource?.name) return row.resource.name
+  if (row.resource_id) {
+    const r = resources.value.find(x => x.id === row.resource_id)
+    return r ? `${r.code || ''} - ${r.name}` : '-'
+  }
+  if (row.work_center_id) {
+    const r = resources.value.find(x => x.work_center_id === row.work_center_id)
+    return r?.name || '-'
+  }
+  return '-'
 }
 
 // Routing form
@@ -230,7 +262,7 @@ const opFormRef = ref(null)
 const opForm = ref({
   sequence: 10,
   name: '',
-  work_center_id: null,
+  resource_id: null,
   setup_time: 0,
   run_time_per_unit: 0.1,
   description: ''
@@ -239,7 +271,7 @@ const opForm = ref({
 const opRules = {
   sequence: [{ required: true, message: '请输入顺序', trigger: 'blur' }],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }],
-  work_center_id: [{ required: true, message: '请选择工作中心', trigger: 'change' }],
+  resource_id: [{ required: true, message: '请选择资源', trigger: 'change' }],
   run_time_per_unit: [{ required: true, message: '请输入单件时间', trigger: 'blur' }]
 }
 
@@ -310,7 +342,7 @@ const handleAddOperation = () => {
   opForm.value = { 
     sequence: maxSeq + 10, 
     name: '', 
-    work_center_id: null, 
+    resource_id: null, 
     setup_time: 0, 
     run_time_per_unit: 0.1, 
     description: '' 
@@ -321,7 +353,10 @@ const handleAddOperation = () => {
 const handleEditOperation = (op) => {
   isEditOp.value = true
   editOpId.value = op.id
-  opForm.value = { ...op }
+  const resourceId = op.resource_id ?? (op.work_center_id && resources.value.length
+    ? resources.value.find(r => r.work_center_id === op.work_center_id)?.id
+    : null)
+  opForm.value = { ...op, resource_id: resourceId }
   opDialogVisible.value = true
 }
 
@@ -371,20 +406,47 @@ const handleSubmitOperation = async () => {
   }
 }
 
-onMounted(async () => {
-  await store.fetchRoutings()
+// 跳转到详细计划表
+const goToDetailedPlan = () => {
+  router.push('/ds')
+}
+
+onMounted(() => {
+  store.fetchRoutings()
   store.fetchProducts()
   store.fetchWorkCenters()
   store.fetchResources()
-  
-  // 同步到共享store，供详细计划表使用
-  dsFiltersStore.setDSRoutings(store.routings)
 })
 </script>
 
 <style lang="scss" scoped>
 .master-data-page {
   min-height: calc(100vh - 100px);
+}
+
+// 筛选状态提示
+.filter-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  margin-bottom: 16px;
+  background: #ecf5ff;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #409eff;
+  
+  .el-icon {
+    font-size: 16px;
+  }
+  
+  .filter-tag {
+    margin: 0 2px;
+  }
+  
+  .more-hint {
+    color: #909399;
+  }
 }
 
 .ops-toolbar {

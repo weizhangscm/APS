@@ -120,6 +120,7 @@ class RoutingOperation(Base):
     sequence = Column(Integer, nullable=False)  # 工序顺序
     name = Column(String(100), nullable=False)
     work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=False)
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=True)  # 指定资源（DS工艺路线用）
     setup_time = Column(Float, default=0.0)  # 准备时间(小时)
     run_time_per_unit = Column(Float, nullable=False)  # 单件加工时间(小时)
     description = Column(Text, nullable=True)
@@ -129,6 +130,7 @@ class RoutingOperation(Base):
     # Relationships
     routing = relationship("Routing", back_populates="operations")
     work_center = relationship("WorkCenter")
+    resource = relationship("Resource")
 
 
 class ProductionOrder(Base):

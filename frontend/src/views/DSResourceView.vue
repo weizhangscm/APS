@@ -1,5 +1,18 @@
 <template>
   <div class="ds-resource-view">
+    <!-- 筛选状态提示 -->
+    <div v-if="dsFiltersStore.selectedResourceIds.length > 0" class="filter-hint">
+      <el-icon><Filter /></el-icon>
+      <span>已关联"详细计划表"筛选条件，显示 {{ resourceList.length }} 个资源</span>
+      <el-tag v-for="name in dsFiltersStore.selectedResourceNames.slice(0, 3)" :key="name" size="small" type="info" class="filter-tag">
+        {{ name }}
+      </el-tag>
+      <span v-if="dsFiltersStore.selectedResourceNames.length > 3" class="more-hint">
+        等 {{ dsFiltersStore.selectedResourceNames.length }} 个资源
+      </span>
+      <el-button type="primary" link size="small" @click="goToDetailedPlan">修改筛选</el-button>
+    </div>
+    
     <!-- 顶部功能按钮栏 -->
     <div class="toolbar">
       <div class="toolbar-left">
@@ -142,12 +155,13 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useMasterDataStore } from '@/stores/masterData'
+import { Filter } from '@element-plus/icons-vue'
+import { masterDataApi } from '@/api'
 import { useDSFiltersStore } from '@/stores/dsFilters'
 
-// 主数据store
-const store = useMasterDataStore()
+const router = useRouter()
 
 // 共享筛选store
 const dsFiltersStore = useDSFiltersStore()
@@ -158,8 +172,19 @@ const loading = ref(false)
 // 表格引用
 const tableRef = ref(null)
 
-// 资源列表数据（全部数据，DS资源是数据源）
-const resourceList = ref([])
+// 资源列表数据（所有资源）
+const allResourceList = ref([])
+
+// 根据详细计划表筛选条件过滤后的资源列表
+const resourceList = computed(() => {
+  const selectedIds = dsFiltersStore.selectedResourceIds
+  // 如果详细计划表没有选择资源，显示所有资源
+  if (!selectedIds || selectedIds.length === 0) {
+    return allResourceList.value
+  }
+  // 否则只显示选中的资源
+  return allResourceList.value.filter(r => selectedIds.includes(r.id))
+})
 
 // 选中的资源
 const selectedResources = ref([])
@@ -187,34 +212,57 @@ const getResourceMode = (capacity) => {
     : '多重'
 }
 
+// 将 "HH:mm:ss" 或 "HH:mm" 转为从 0 点起的分钟数
+const timeToMinutes = (timeStr) => {
+  if (!timeStr) return 0
+  const s = String(timeStr).trim()
+  const parts = s.split(':').map(Number)
+  const h = parts[0] || 0
+  const m = parts[1] || 0
+  const sec = parts[2] || 0
+  return h * 60 + m + sec / 60
+}
+
+// 生产时间/小时 = 结束 - 开始 - 休息时间
+const calcProductionHours = (startTime, endTime, breakTime) => {
+  const startMin = timeToMinutes(startTime)
+  const endMin = timeToMinutes(endTime)
+  const breakMin = timeToMinutes(breakTime)
+  const minutes = Math.max(0, endMin - startMin - breakMin)
+  return Math.round(minutes / 60 * 100) / 100
+}
+
 // 加载资源数据
 const loadResources = async () => {
   loading.value = true
   try {
-    // 通过store获取数据
-    await store.fetchResources()
-    const data = store.resources
-    // 将后端数据映射为界面字段
-    const mappedData = (data || []).map(resource => ({
-      id: resource.id,
-      code: resource.code,
-      name: resource.name,
-      location: resource.work_center?.code || resource.work_center_id || '1020',
-      start_time: '09:00:00',
-      end_time: '18:00:00',
-      break_time: '00:00:00',
-      utilization_percent: (resource.efficiency || 1) * 100,
-      production_hours: resource.capacity_per_day || 9,
-      capacity: getCapacityValue(resource),
-      finite_planning: true,
-      is_bottleneck: resource.name?.includes('CNC') || resource.name?.includes('加工') || resource.name?.includes('瓶颈') || false,
-      timezone: 'CET',
-      factory_calendar: resource.work_center?.code === 'CN' ? 'CN' : '01',
-      planning_group: 'A'
-    }))
-    resourceList.value = mappedData
-    // 同步到共享store，供详细计划表使用
-    dsFiltersStore.setDSResources(mappedData)
+    const data = await masterDataApi.getResources()
+    const defaultStart = '09:00:00'
+    const defaultEnd = '18:00:00'
+    const defaultBreak = '00:00:00'
+    allResourceList.value = data.map(resource => {
+      const start_time = defaultStart
+      const end_time = defaultEnd
+      const break_time = defaultBreak
+      const production_hours = calcProductionHours(start_time, end_time, break_time)
+      return {
+        id: resource.id,
+        code: resource.code,
+        name: resource.name,
+        location: resource.work_center?.code || resource.work_center_id || '1020',
+        start_time,
+        end_time,
+        break_time,
+        utilization_percent: (resource.efficiency || 1) * 100,
+        production_hours,
+        capacity: getCapacityValue(resource),
+        finite_planning: true,
+        is_bottleneck: resource.name?.includes('CNC') || resource.name?.includes('加工') || resource.name?.includes('瓶颈') || false,
+        timezone: 'CET',
+        factory_calendar: resource.work_center?.code === 'CN' ? 'CN' : '01',
+        planning_group: 'A'
+      }
+    })
   } catch (error) {
     console.error('Failed to load resources:', error)
     ElMessage.error('加载资源数据失败')
@@ -269,6 +317,11 @@ const handleShiftOrderSave = () => {
   shiftOrderDialogVisible.value = false
 }
 
+// 跳转到详细计划表
+const goToDetailedPlan = () => {
+  router.push('/ds')
+}
+
 // 初始化
 onMounted(() => {
   loadResources()
@@ -281,6 +334,30 @@ onMounted(() => {
   flex-direction: column;
   height: calc(100vh - 80px);
   background: #fff;
+}
+
+// 筛选状态提示
+.filter-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  background: #ecf5ff;
+  border-bottom: 1px solid #d9ecff;
+  font-size: 13px;
+  color: #409eff;
+  
+  .el-icon {
+    font-size: 16px;
+  }
+  
+  .filter-tag {
+    margin: 0 2px;
+  }
+  
+  .more-hint {
+    color: #909399;
+  }
 }
 
 // 工具栏样式

@@ -120,7 +120,8 @@ class Product(ProductBase):
 class RoutingOperationBase(BaseModel):
     sequence: int
     name: str = Field(..., max_length=100)
-    work_center_id: int
+    work_center_id: Optional[int] = None  # 可选，若提供 resource_id 则由后端推导
+    resource_id: Optional[int] = None     # 指定资源（与 DS资源 一致）
     setup_time: float = 0.0
     run_time_per_unit: float
     description: Optional[str] = None
@@ -134,6 +135,7 @@ class RoutingOperationUpdate(BaseModel):
     sequence: Optional[int] = None
     name: Optional[str] = Field(None, max_length=100)
     work_center_id: Optional[int] = None
+    resource_id: Optional[int] = None
     setup_time: Optional[float] = None
     run_time_per_unit: Optional[float] = None
     description: Optional[str] = None
@@ -151,6 +153,7 @@ class RoutingOperation(RoutingOperationBase):
 
 class RoutingOperationWithWorkCenter(RoutingOperation):
     work_center: Optional[WorkCenter] = None
+    resource: Optional["Resource"] = None
 
 
 # Routing Schemas
@@ -331,6 +334,7 @@ class GanttTask(BaseModel):
     order_status: Optional[str] = None  # 订单状态: "created", "scheduled", "in_progress", "completed", "cancelled"
     changeover_time: Optional[float] = None  # 切换时间（小时）
     is_preview: bool = False  # 是否是预览模式下的临时数据
+    work_hours: Optional[float] = None  # 作业时间（小时），用于时长列显示，避免用日历跨度导致“排程后总时长变大”的误解
 
 
 class GanttLink(BaseModel):

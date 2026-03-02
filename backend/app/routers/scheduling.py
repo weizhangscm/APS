@@ -2,11 +2,18 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Optional, List
+import logging
 
 from ..database import get_db
 from .. import schemas
 from ..scheduler.engine import SchedulingEngine
 from ..scheduler.constraints import ConstraintValidator
+
+# 配置日志
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+logger.info("[SCHEDULING_ROUTER] Module loaded - version 2026-02-04-v5")
 
 router = APIRouter()
 
@@ -141,7 +148,8 @@ def auto_plan(
     执行自动排程（启发式或优化器）
     """
     engine = SchedulingEngine(db)
-    return engine.auto_plan(request)
+    result = engine.auto_plan(request)
+    return result
 
 
 @router.post("/cancel-plan")

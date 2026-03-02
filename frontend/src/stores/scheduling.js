@@ -12,6 +12,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
   const conflicts = ref([])
   const currentViewType = ref('order')
   const hasUnsavedChanges = ref(false)  // 是否有未保存的排程更改
+  const planLog = ref(null)  // 最近一次自动计划/启发式的结果，用于「日志」展示（含错误详情）
 
   // Actions
   async function fetchGanttData(viewType = 'order', startDate = null, endDate = null) {
@@ -178,6 +179,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
 
   async function autoPlan(planType, heuristicId = null, optimizerConfig = null, resourceIds = null) {
     loading.value = true
+    let planLogSetThisRun = false
     try {
       const result = await schedulingApi.autoPlan({
         plan_type: planType,
@@ -185,10 +187,33 @@ export const useSchedulingStore = defineStore('scheduling', () => {
         optimizer_config: optimizerConfig,
         resource_ids: resourceIds
       })
+      // 更新缓存状态（立即终止且失败时后端返回 has_unsaved_changes: false）
+      if (result.has_unsaved_changes !== undefined) {
+        hasUnsavedChanges.value = result.has_unsaved_changes
+      }
+      // 记录本次结果供「日志」查看（含 success、message、details）；先写入再刷新甘特，避免后续 fetch 报错覆盖日志
+      planLog.value = {
+        success: result.success,
+        message: result.message,
+        details: result.details || [],
+        scheduled_orders: result.scheduled_orders,
+        scheduled_operations: result.scheduled_operations,
+        timestamp: new Date().toLocaleString()
+      }
+      planLogSetThisRun = true
       await fetchGanttData(currentViewType.value)
       return result
     } catch (error) {
       console.error('Auto plan failed:', error)
+      // 仅当本次未拿到启发式结果时才写入错误日志，避免 fetchGanttData 失败覆盖掉已有的排程错误详情
+      if (!planLogSetThisRun) {
+        planLog.value = {
+          success: false,
+          message: error?.response?.data?.message || error?.message || '请求失败',
+          details: [],
+          timestamp: new Date().toLocaleString()
+        }
+      }
       throw error
     } finally {
       loading.value = false
@@ -262,6 +287,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
     conflicts,
     currentViewType,
     hasUnsavedChanges,
+    planLog,
     // Actions
     fetchGanttData,
     fetchProductGanttData,

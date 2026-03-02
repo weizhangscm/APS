@@ -214,7 +214,8 @@ def get_routings(
     """获取所有工艺路线"""
     query = db.query(models.Routing).options(
         joinedload(models.Routing.product),
-        joinedload(models.Routing.operations).joinedload(models.RoutingOperation.work_center)
+        joinedload(models.Routing.operations).joinedload(models.RoutingOperation.work_center),
+        joinedload(models.Routing.operations).joinedload(models.RoutingOperation.resource)
     )
     if product_id:
         query = query.filter(models.Routing.product_id == product_id)
@@ -226,7 +227,8 @@ def get_routing(routing_id: int, db: Session = Depends(get_db)):
     """获取单个工艺路线"""
     routing = db.query(models.Routing).options(
         joinedload(models.Routing.product),
-        joinedload(models.Routing.operations).joinedload(models.RoutingOperation.work_center)
+        joinedload(models.Routing.operations).joinedload(models.RoutingOperation.work_center),
+        joinedload(models.Routing.operations).joinedload(models.RoutingOperation.resource)
     ).filter(models.Routing.id == routing_id).first()
     if not routing:
         raise HTTPException(status_code=404, detail="工艺路线不存在")
@@ -254,10 +256,11 @@ def create_routing(routing: schemas.RoutingCreate, db: Session = Depends(get_db)
     # Create operations if provided
     if routing.operations:
         for op_data in routing.operations:
-            db_operation = models.RoutingOperation(
-                routing_id=db_routing.id,
-                **op_data.model_dump()
+            data = op_data.model_dump()
+            data["work_center_id"] = _resolve_work_center_from_resource(
+                db, data.get("resource_id"), data.get("work_center_id")
             )
+            db_operation = models.RoutingOperation(routing_id=db_routing.id, **data)
             db.add(db_operation)
         db.commit()
     
@@ -294,26 +297,36 @@ def delete_routing(routing_id: int, db: Session = Depends(get_db)):
 
 # ==================== Routing Operations ====================
 
+def _resolve_work_center_from_resource(db: Session, resource_id: int = None, work_center_id: int = None) -> int:
+    """若提供 resource_id 则从资源推导 work_center_id，否则校验 work_center_id。"""
+    if resource_id is not None:
+        resource = db.query(models.Resource).filter(models.Resource.id == resource_id).first()
+        if not resource:
+            raise HTTPException(status_code=400, detail="资源不存在")
+        return resource.work_center_id
+    if work_center_id is None:
+        raise HTTPException(status_code=400, detail="请选择资源")
+    wc = db.query(models.WorkCenter).filter(models.WorkCenter.id == work_center_id).first()
+    if not wc:
+        raise HTTPException(status_code=400, detail="工作中心不存在")
+    return work_center_id
+
+
 @router.post("/routings/{routing_id}/operations", response_model=schemas.RoutingOperation)
 def create_routing_operation(
     routing_id: int, 
     operation: schemas.RoutingOperationCreate, 
     db: Session = Depends(get_db)
 ):
-    """为工艺路线添加工序"""
+    """为工艺路线添加工序（支持传 resource_id，与 DS资源 一致）"""
     routing = db.query(models.Routing).filter(models.Routing.id == routing_id).first()
     if not routing:
         raise HTTPException(status_code=404, detail="工艺路线不存在")
-    
-    # Check work center exists
-    work_center = db.query(models.WorkCenter).filter(models.WorkCenter.id == operation.work_center_id).first()
-    if not work_center:
-        raise HTTPException(status_code=400, detail="工作中心不存在")
-    
-    db_operation = models.RoutingOperation(
-        routing_id=routing_id,
-        **operation.model_dump()
+    data = operation.model_dump()
+    data["work_center_id"] = _resolve_work_center_from_resource(
+        db, data.get("resource_id"), data.get("work_center_id")
     )
+    db_operation = models.RoutingOperation(routing_id=routing_id, **data)
     db.add(db_operation)
     db.commit()
     db.refresh(db_operation)
@@ -326,15 +339,18 @@ def update_routing_operation(
     operation: schemas.RoutingOperationUpdate, 
     db: Session = Depends(get_db)
 ):
-    """更新工艺路线工序"""
+    """更新工艺路线工序（支持 resource_id，会推导 work_center_id）"""
     db_operation = db.query(models.RoutingOperation).filter(models.RoutingOperation.id == operation_id).first()
     if not db_operation:
         raise HTTPException(status_code=404, detail="工序不存在")
-    
     update_data = operation.model_dump(exclude_unset=True)
+    if "resource_id" in update_data or "work_center_id" in update_data:
+        merged = {"resource_id": getattr(db_operation, "resource_id", None), "work_center_id": db_operation.work_center_id, **update_data}
+        update_data["work_center_id"] = _resolve_work_center_from_resource(
+            db, merged.get("resource_id"), merged.get("work_center_id")
+        )
     for key, value in update_data.items():
         setattr(db_operation, key, value)
-    
     db.commit()
     db.refresh(db_operation)
     return db_operation

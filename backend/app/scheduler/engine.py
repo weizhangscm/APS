@@ -9,8 +9,11 @@
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from sqlalchemy.orm import Session
+import logging
 
 from .. import models, schemas
+
+logger = logging.getLogger(__name__)
 from .algorithms import ForwardScheduler, BackwardScheduler, StableForwardScheduler, sort_orders_by_priority
 from .constraints import ConstraintValidator
 from .cache import schedule_cache, CachedOperation
@@ -252,12 +255,8 @@ class SchedulingEngine:
             if cached_operations:
                 saved_from_cache = 0
                 affected_order_ids = set()
-                
+                # 保存缓存时写入启发式产生的全部工序，不按选中资源过滤，与「订单内部关系：始终考虑」结果一致
                 for cached_op in cached_operations:
-                    # 根据筛选条件过滤
-                    if resource_ids and cached_op.resource_id not in resource_ids:
-                        continue
-                    
                     # 查找并更新数据库中的工序
                     op = self.db.query(models.Operation).filter(
                         models.Operation.id == cached_op.operation_id
@@ -499,6 +498,7 @@ class SchedulingEngine:
 
     def auto_plan(self, request: schemas.AutoPlanRequest):
         """执行自动计划"""
+        # Debug logs removed to avoid GBK encoding errors on Windows
         if request.plan_type == "heuristic":
             # 检查是否是稳定向前计划
             if request.heuristic_id == "stable_forward":
@@ -596,6 +596,10 @@ class SchedulingEngine:
             'PRIORITY': 'PRIORITY'
         }
         algorithm_sorting_rule = sorting_rule_mapping.get(sorting_rule, 'PRIORITY')
+        logger.info(
+            "[run_heuristic] sorting_rule from config=%r -> algorithm=%s",
+            sorting_rule, algorithm_sorting_rule
+        )
         
         # 根据计划方向设置
         direction = 'forward' if planning_direction == '向前' else 'backward'
@@ -627,6 +631,19 @@ class SchedulingEngine:
         # 设置策略参数到 scheduler
         scheduler.direction = direction
         scheduler.expected_date_mode = expected_date
+        # 指定日期时使用的具体日期（由策略配置中的日期选择器传入）
+        expected_date_value = config.get('expected_date_value')
+        if expected_date_value and expected_date == '指定日期':
+            try:
+                if isinstance(expected_date_value, str):
+                    expected_date_value = expected_date_value.replace('.', '-')
+                    scheduler.expected_date_value = datetime.strptime(expected_date_value, '%Y-%m-%d')
+                else:
+                    scheduler.expected_date_value = expected_date_value
+            except Exception:
+                scheduler.expected_date_value = None
+        else:
+            scheduler.expected_date_value = None
         scheduler.order_internal_relation = order_internal_relation
         scheduler.adjust_related_operations = adjust_related_operations
         scheduler.infinite_capacity_for_related = infinite_capacity_for_related
@@ -641,15 +658,73 @@ class SchedulingEngine:
             ])
         )
         
+        # 获取显示区间（用于"订单内部关系=不考虑"时过滤订单）
+        display_start_date = config.get('display_start_date')
+        display_end_date = config.get('display_end_date')
+        
+        # 解析日期字符串
+        display_start = None
+        display_end = None
+        if display_start_date:
+            try:
+                if isinstance(display_start_date, str):
+                    # 处理格式如 "2026.02.04" 或 "2026-02-04"
+                    display_start_date = display_start_date.replace('.', '-')
+                    display_start = datetime.strptime(display_start_date, '%Y-%m-%d')
+            except:
+                pass
+        if display_end_date:
+            try:
+                if isinstance(display_end_date, str):
+                    display_end_date = display_end_date.replace('.', '-')
+                    display_end = datetime.strptime(display_end_date, '%Y-%m-%d')
+                    # 将结束日期设为当天的最后时刻
+                    display_end = display_end.replace(hour=23, minute=59, second=59)
+            except:
+                pass
+        
+        # 如果没有提供显示区间，使用默认值（当前日期 + 11 天，即显示到 02-15）
+        # 这是为了在"订单内部关系=不考虑"时，只排程显示区间内的订单
+        if display_start is None:
+            display_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        if display_end is None:
+            # 默认显示区间：当前日期 + 11 天
+            display_end = display_start + timedelta(days=11)
+            display_end = display_end.replace(hour=23, minute=59, second=59)
+        
+        # 方案C：将显示区间传给排程器，排程阶段严格限制在显示区间内
+        scheduler.display_start_date = display_start
+        scheduler.display_end_date = display_end
+        
         # 只排程选中资源上的工序
         # 如果指定了资源，找到需要在这些资源上加工的订单
         target_operation_ids = None  # 要排程的工序ID列表
+        
+        # Debug logs removed to avoid GBK encoding errors
         
         if request.resource_ids and schedule_selected_resources_only:
             # 只排选中资源上的工序 - 找到选中资源上的所有工序
             target_operations = self.db.query(models.Operation).filter(
                 models.Operation.resource_id.in_(request.resource_ids)
             ).all()
+            
+            # 有显示区间时，只排程交期在显示区间内的订单（不论「订单内部关系」为不考虑或始终考虑）
+            if display_start and display_end:
+                filtered_operations = []
+                for op in target_operations:
+                    order = self.db.query(models.ProductionOrder).filter(
+                        models.ProductionOrder.id == op.order_id
+                    ).first()
+                    if order:
+                        # Only include operations with due_date within display range
+                        due_date_in_range = (
+                            order.due_date and 
+                            display_start <= order.due_date <= display_end
+                        )
+                        if due_date_in_range:
+                            filtered_operations.append(op)
+                target_operations = filtered_operations
+            
             target_operation_ids = [op.id for op in target_operations]
             
             # 获取这些工序所属的订单
@@ -731,58 +806,56 @@ class SchedulingEngine:
             selected_resource_ids=request.resource_ids
         )
         
+        # 立即终止：若有订单因找不到可用时间槽而失败，视为排程失败，回滚且不写入缓存，返回错误提示
+        failed_details = [d for d in results.get('details', []) if not d.get('success')]
+        if error_handling == '立即终止' and failed_details:
+            self.db.rollback()
+            failed_parts = [
+                f"{d.get('order_number', '')}（{d.get('error', '')}）"
+                for d in failed_details
+            ]
+            error_message = "显示区间内产能已用尽，排程已终止。以下订单无法排程：" + "；".join(failed_parts)
+            return {
+                "success": False,
+                "message": error_message,
+                "scheduled_orders": results['scheduled_orders'],
+                "scheduled_operations": results['scheduled_operations'],
+                "backlog_resolved": results['backlog_resolved'],
+                "overload_resolved": results['overload_resolved'],
+                "conflicts": [],
+                "details": results.get('details', []),
+                "preview_mode": preview_mode,
+                "has_unsaved_changes": False,
+                "_engine_version": "v5",
+                "_filtered_ops_count": len(target_operation_ids) if target_operation_ids else 0
+            }
+        
         if preview_mode:
             # 预览模式：将排程结果存入缓存，然后回滚数据库更改
             cached_operations = []
             
-            # 需要缓存的工序包括：
-            # 1. 被排程处理过的目标工序
-            # 2. 选中资源上的所有已排程工序（包括被保留未变的）
-            # 这样可以确保甘特图正确显示所有选中资源上的工序
-            
-            # 首先，缓存所有选中资源上的已排程工序
-            if request.resource_ids:
-                # 直接从数据库获取选中资源上的所有已排程工序
-                all_ops_on_selected_resources = self.db.query(models.Operation).filter(
-                    models.Operation.resource_id.in_(request.resource_ids),
-                    models.Operation.scheduled_start != None,
-                    models.Operation.scheduled_end != None
-                ).all()
-                
-                for op in all_ops_on_selected_resources:
-                    cached_operations.append(CachedOperation(
-                        operation_id=op.id,
-                        order_id=op.order_id,
-                        resource_id=op.resource_id,
-                        scheduled_start=op.scheduled_start,
-                        scheduled_end=op.scheduled_end,
-                        changeover_time=op.changeover_time or 0,
-                        status=op.status
-                    ))
-            else:
-                # 没有选中资源，按原来的逻辑处理
-                for order in orders:
-                    for op in order.operations:
-                        # 如果有目标工序限制，只缓存目标工序
-                        # 但如果 adjust_related_operations 为 True，也缓存关联工序
-                        should_cache = False
-                        if target_operation_ids is None:
-                            should_cache = True
-                        elif op.id in target_operation_ids:
-                            should_cache = True
-                        elif adjust_related_operations and op.scheduled_start and op.scheduled_end:
-                            should_cache = True
+            # 从排程结果的 details 中提取已排程的工序信息
+            for order_result in results.get('details', []):
+                if order_result.get('success') and order_result.get('operations'):
+                    for op_info in order_result['operations']:
+                        op = self.db.query(models.Operation).filter(
+                            models.Operation.id == op_info['operation_id']
+                        ).first()
                         
-                        if should_cache and op.scheduled_start and op.scheduled_end:
-                            cached_operations.append(CachedOperation(
+                        if op:
+                            start_time = datetime.fromisoformat(op_info['start'])
+                            end_time = datetime.fromisoformat(op_info['end'])
+                            
+                            cached_op = CachedOperation(
                                 operation_id=op.id,
                                 order_id=op.order_id,
-                                resource_id=op.resource_id,
-                                scheduled_start=op.scheduled_start,
-                                scheduled_end=op.scheduled_end,
-                                changeover_time=op.changeover_time or 0,
-                                status=op.status
-                            ))
+                                resource_id=op_info['resource_id'],
+                                scheduled_start=start_time,
+                                scheduled_end=end_time,
+                                changeover_time=op_info.get('changeover_time', 0),
+                                status='scheduled'
+                            )
+                            cached_operations.append(cached_op)
             
             # 保存到缓存（使用合并模式，保留其他资源的缓存数据）
             message = f"稳定向前计划完成：排程 {results['scheduled_orders']} 个订单，{results['scheduled_operations']} 道工序"
@@ -824,7 +897,9 @@ class SchedulingEngine:
             "conflicts": [v.to_dict() for v in violations] if violations else [],
             "details": results.get('details', []),
             "preview_mode": preview_mode,
-            "has_unsaved_changes": schedule_cache.has_unsaved_changes if preview_mode else False
+            "has_unsaved_changes": schedule_cache.has_unsaved_changes if preview_mode else False,
+            "_engine_version": "v5",
+            "_filtered_ops_count": len(target_operation_ids) if target_operation_ids else 0
         }
     
     def get_gantt_data(
@@ -1006,7 +1081,8 @@ class SchedulingEngine:
                         color='#F59E0B',  # 橙黄色
                         task_type='changeover',
                         order_type=order.order_type,
-                        changeover_time=changeover_time
+                        changeover_time=changeover_time,
+                        work_hours=changeover_time
                     ))
                     
                     # 切换工序到实际工序的链接
@@ -1031,7 +1107,8 @@ class SchedulingEngine:
                         color=status_colors.get(op.status, '#6B7280' if is_production else '#409EFF'),
                         task_type='operation',
                         order_type=order.order_type,
-                        changeover_time=changeover_time
+                        changeover_time=changeover_time,
+                        work_hours=op.run_time
                     ))
                 else:
                     # 没有切换时间，直接显示工序
@@ -1048,7 +1125,8 @@ class SchedulingEngine:
                         color=status_colors.get(op.status, '#6B7280' if is_production else '#409EFF'),
                         task_type='operation',
                         order_type=order.order_type,
-                        changeover_time=changeover_time
+                        changeover_time=changeover_time,
+                        work_hours=op.run_time
                     ))
                 
                 # 添加工序之间的链接
@@ -1122,12 +1200,7 @@ class SchedulingEngine:
                 
                 for op_id in cached_op_ids_for_resource:
                     cached_op = cached_ops[op_id]
-                    
-                    # 检查缓存中的排程时间是否在显示区间内
-                    if cached_op.scheduled_start and cached_op.scheduled_end:
-                        if cached_op.scheduled_end < start_date or cached_op.scheduled_start > end_date:
-                            continue  # 不在显示区间内，跳过
-                    
+                    # 不再因排程时间在显示区间外就跳过，否则运行启发式后该资源上的订单会变少
                     # 从数据库获取工序详情
                     op = self.db.query(models.Operation).filter(
                         models.Operation.id == op_id
@@ -1159,6 +1232,26 @@ class SchedulingEngine:
                 
                 # 过滤掉已经在缓存中的工序（避免重复显示）
                 for op in db_operations:
+                    if op.id not in cached_op_ids_list:
+                        all_operations.append(op)
+                
+                # 3. 与“无缓存”分支一致：兜底添加 resource_id 为空但属于该工作中心的待排程工序，避免运行启发式后订单变少
+                pending_without_resource = []
+                is_first_resource_in_wc = work_center_to_first_resource.get(resource.work_center_id) == resource.id
+                if is_first_resource_in_wc:
+                    pending_without_resource = self.db.query(models.Operation).join(
+                        models.RoutingOperation,
+                        models.Operation.routing_operation_id == models.RoutingOperation.id
+                    ).join(
+                        models.ProductionOrder,
+                        models.Operation.order_id == models.ProductionOrder.id
+                    ).filter(
+                        models.Operation.resource_id == None,
+                        models.RoutingOperation.work_center_id == resource.work_center_id,
+                        models.ProductionOrder.due_date >= start_date,
+                        models.ProductionOrder.due_date <= end_date
+                    ).all()
+                for op in pending_without_resource:
                     if op.id not in cached_op_ids_list:
                         all_operations.append(op)
             else:
@@ -1246,7 +1339,7 @@ class SchedulingEngine:
                         # 没有交货日期，跳过
                         continue
                     
-                    # 添加待排程工序任务
+                    # 添加待排程工序任务（时长列用作业时间 run_time，与排程后一致）
                     tasks.append(schemas.GanttTask(
                         id=f"op_{op.id}",
                         text=f"{order_number} - {op.sequence} {op.name}",
@@ -1262,7 +1355,8 @@ class SchedulingEngine:
                         task_type='operation',
                         order_type=order.order_type if order else None,
                         order_status=order.status if order else None,
-                        changeover_time=0
+                        changeover_time=0,
+                        work_hours=op.run_time
                     ))
                 else:
                     # 已排程工序的逻辑（使用缓存数据或数据库数据）
@@ -1275,7 +1369,7 @@ class SchedulingEngine:
                         changeover_end = op_scheduled_start + changeover_duration
                         actual_op_start = changeover_end
                         
-                        # 添加切换工序任务
+                        # 添加切换工序任务（时长为切换时间）
                         tasks.append(schemas.GanttTask(
                             id=f"changeover_{op.id}",
                             text=f"🔄 {order_number} 切换",
@@ -1293,10 +1387,11 @@ class SchedulingEngine:
                             order_type=order.order_type if order else None,
                             order_status=order.status if order else None,
                             changeover_time=op_changeover_time,
-                            is_preview=is_preview
+                            is_preview=is_preview,
+                            work_hours=op_changeover_time
                         ))
                         
-                        # 实际工序从切换结束后开始
+                        # 实际工序从切换结束后开始（时长列用作业时间）
                         tasks.append(schemas.GanttTask(
                             id=f"op_{op.id}",
                             text=f"{order_number} - {op.sequence} {op.name}",
@@ -1313,10 +1408,11 @@ class SchedulingEngine:
                             order_type=order.order_type if order else None,
                             order_status=order.status if order else None,
                             changeover_time=op_changeover_time,
-                            is_preview=is_preview
+                            is_preview=is_preview,
+                            work_hours=op.run_time
                         ))
                     else:
-                        # 没有切换时间，直接显示工序
+                        # 没有切换时间，直接显示工序（时长列用作业时间）
                         tasks.append(schemas.GanttTask(
                             id=f"op_{op.id}",
                             text=f"{order_number} - {op.sequence} {op.name}",
@@ -1333,7 +1429,8 @@ class SchedulingEngine:
                             order_type=order.order_type if order else None,
                             order_status=order.status if order else None,
                             changeover_time=op_changeover_time,
-                            is_preview=is_preview
+                            is_preview=is_preview,
+                            work_hours=op.run_time
                         ))
         
         return tasks, links
@@ -1360,73 +1457,218 @@ class SchedulingEngine:
         )
     
     def _calculate_resource_utilization(self) -> List[schemas.ResourceUtilization]:
-        """计算资源利用率"""
+        """计算资源利用率（未来7天，含缓存预览排程和生产订单）"""
         result = []
-        
-        # 计算未来7天的利用率
-        start_date = datetime.now()
+
+        start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         end_date = start_date + timedelta(days=7)
-        
+
         resources = self.db.query(models.Resource).all()
-        
+
+        # 读取缓存排程（预览模式）
+        cached_ops: Dict[int, object] = {}
+        cached_ops_by_resource: Dict[int, list] = {}
+        if schedule_cache.has_unsaved_changes:
+            for cached_op in schedule_cache.get_all_operations():
+                cached_ops[cached_op.operation_id] = cached_op
+                res_id = cached_op.resource_id
+                if res_id not in cached_ops_by_resource:
+                    cached_ops_by_resource[res_id] = []
+                cached_ops_by_resource[res_id].append(cached_op)
+
         for resource in resources:
             total_capacity = resource.capacity_per_day * 7
-            
-            # 获取该资源在时间范围内的已排程工序
-            operations = self.db.query(models.Operation).filter(
-                models.Operation.resource_id == resource.id,
-                models.Operation.scheduled_start != None,
-                models.Operation.scheduled_start >= start_date,
-                models.Operation.scheduled_end <= end_date
+            scheduled_hours = 0.0
+
+            # ---- 收集该资源在7天窗口内的工时 ----
+            if cached_ops:
+                # 有缓存：优先使用缓存时间
+                for cached_op in cached_ops_by_resource.get(resource.id, []):
+                    s = cached_op.scheduled_start
+                    e = cached_op.scheduled_end
+                    if s and e:
+                        # 与窗口取交集
+                        overlap_s = max(s, start_date)
+                        overlap_e = min(e, end_date)
+                        if overlap_e > overlap_s:
+                            scheduled_hours += (overlap_e - overlap_s).total_seconds() / 3600
+
+                # 数据库中不在缓存里的已排程工序（含计划订单和生产订单工序）
+                cached_ids = list(cached_ops.keys())
+                db_ops = self.db.query(models.Operation).filter(
+                    models.Operation.resource_id == resource.id,
+                    models.Operation.scheduled_start != None,
+                    models.Operation.scheduled_start < end_date,
+                    models.Operation.scheduled_end > start_date,
+                    ~models.Operation.id.in_(cached_ids) if cached_ids else True
+                ).all()
+                for op in db_ops:
+                    overlap_s = max(op.scheduled_start, start_date)
+                    overlap_e = min(op.scheduled_end, end_date)
+                    if overlap_e > overlap_s:
+                        scheduled_hours += (overlap_e - overlap_s).total_seconds() / 3600
+            else:
+                # 无缓存：直接读数据库（计划订单工序 + 生产订单工序均含）
+                db_ops = self.db.query(models.Operation).filter(
+                    models.Operation.resource_id == resource.id,
+                    models.Operation.scheduled_start != None,
+                    models.Operation.scheduled_start < end_date,
+                    models.Operation.scheduled_end > start_date
+                ).all()
+                for op in db_ops:
+                    overlap_s = max(op.scheduled_start, start_date)
+                    overlap_e = min(op.scheduled_end, end_date)
+                    if overlap_e > overlap_s:
+                        scheduled_hours += (overlap_e - overlap_s).total_seconds() / 3600
+
+            # 生产订单：工序若无 scheduled_start/end，用订单 confirmed_start/end 均分工时
+            prod_orders = self.db.query(models.ProductionOrder).filter(
+                models.ProductionOrder.order_type == models.OrderType.PRODUCTION.value,
+                models.ProductionOrder.confirmed_start != None,
+                models.ProductionOrder.confirmed_end != None
             ).all()
-            
-            scheduled_hours = sum(
-                (op.scheduled_end - op.scheduled_start).total_seconds() / 3600
-                for op in operations
-            )
-            
+            for order in prod_orders:
+                ops = self.db.query(models.Operation).filter(
+                    models.Operation.order_id == order.id,
+                    models.Operation.resource_id == resource.id,
+                    models.Operation.scheduled_start == None
+                ).all()
+                if not ops:
+                    continue
+                order_dur = (order.confirmed_end - order.confirmed_start).total_seconds()
+                op_dur_each = order_dur / len(ops) if ops else 0
+                for idx, op in enumerate(ops):
+                    op_s = order.confirmed_start + timedelta(seconds=op_dur_each * idx)
+                    op_e = op_s + timedelta(seconds=op_dur_each)
+                    overlap_s = max(op_s, start_date)
+                    overlap_e = min(op_e, end_date)
+                    if overlap_e > overlap_s:
+                        scheduled_hours += (overlap_e - overlap_s).total_seconds() / 3600
+
+            # 待排程工序（已分配资源但无排程时间），用交货期代替
+            exclude_ids = list(cached_ops.keys()) if cached_ops else []
+            pending_with_resource = self.db.query(models.Operation).filter(
+                models.Operation.resource_id == resource.id,
+                models.Operation.scheduled_start == None,
+                ~models.Operation.id.in_(exclude_ids) if exclude_ids else True
+            ).all()
+            for op in pending_with_resource:
+                order = op.order
+                if order and order.due_date and op.run_time:
+                    op_s = order.due_date.replace(hour=8, minute=0, second=0, microsecond=0)
+                    op_e = op_s + timedelta(hours=op.run_time)
+                    overlap_s = max(op_s, start_date)
+                    overlap_e = min(op_e, end_date)
+                    if overlap_e > overlap_s:
+                        scheduled_hours += (overlap_e - overlap_s).total_seconds() / 3600
+
+            # 待排程工序（未分配资源，通过工作中心匹配），用交货期代替
+            if resource.work_center_id:
+                pending_without_resource = self.db.query(models.Operation).join(
+                    models.RoutingOperation,
+                    models.Operation.routing_operation_id == models.RoutingOperation.id
+                ).filter(
+                    models.Operation.resource_id == None,
+                    models.Operation.scheduled_start == None,
+                    models.RoutingOperation.work_center_id == resource.work_center_id
+                ).all()
+                for op in pending_without_resource:
+                    order = op.order
+                    if order and order.due_date and op.run_time:
+                        op_s = order.due_date.replace(hour=8, minute=0, second=0, microsecond=0)
+                        op_e = op_s + timedelta(hours=op.run_time)
+                        overlap_s = max(op_s, start_date)
+                        overlap_e = min(op_e, end_date)
+                        if overlap_e > overlap_s:
+                            scheduled_hours += (overlap_e - overlap_s).total_seconds() / 3600
+
             utilization = (scheduled_hours / total_capacity * 100) if total_capacity > 0 else 0
-            
+
             result.append(schemas.ResourceUtilization(
                 resource_id=resource.id,
                 resource_name=resource.name,
                 work_center_name=resource.work_center.name if resource.work_center else "",
                 total_capacity_hours=total_capacity,
-                scheduled_hours=scheduled_hours,
+                scheduled_hours=round(scheduled_hours, 1),
                 utilization_percent=round(utilization, 1)
             ))
-        
+
         return result
     
     def _calculate_order_kpi(self) -> schemas.OrderKPI:
-        """计算订单KPI"""
+        """计算订单KPI（含缓存预览排程和生产订单）"""
         total = self.db.query(models.ProductionOrder).count()
-        
-        scheduled = self.db.query(models.ProductionOrder).filter(
-            models.ProductionOrder.status == models.OrderStatus.SCHEDULED.value
-        ).count()
-        
-        # 计算准时率
-        scheduled_orders = self.db.query(models.ProductionOrder).filter(
+
+        # 读取缓存（如果有预览排程则工序时间以缓存为准）
+        cached_ops: Dict[int, object] = {}
+        if schedule_cache.has_unsaved_changes:
+            for cached_op in schedule_cache.get_all_operations():
+                cached_ops[cached_op.operation_id] = cached_op
+
+        # 统计"已排程"订单：计划订单status=SCHEDULED，或生产订单有confirmed_end
+        planned_scheduled = self.db.query(models.ProductionOrder).filter(
             models.ProductionOrder.status == models.OrderStatus.SCHEDULED.value
         ).all()
-        
+
+        production_orders = self.db.query(models.ProductionOrder).filter(
+            models.ProductionOrder.order_type == models.OrderType.PRODUCTION.value,
+            models.ProductionOrder.confirmed_end != None
+        ).all()
+
+        # 合并去重（生产订单可能已是SCHEDULED状态）
+        all_scheduled_ids = set(o.id for o in planned_scheduled)
+        for o in production_orders:
+            all_scheduled_ids.add(o.id)
+
+        scheduled = len(all_scheduled_ids)
+
+        # 如果有缓存，把缓存中涉及的订单也算入已排程
+        if cached_ops:
+            cached_order_ids = set()
+            for cached_op in cached_ops.values():
+                op_db = self.db.query(models.Operation).filter(
+                    models.Operation.id == cached_op.operation_id
+                ).first()
+                if op_db:
+                    cached_order_ids.add(op_db.order_id)
+            all_scheduled_ids |= cached_order_ids
+            scheduled = len(all_scheduled_ids)
+
         on_time = 0
         delayed = 0
-        
-        for order in scheduled_orders:
+
+        # 遍历所有订单：已排程的用实际完工时间，待排程的用交货期作为预计完工时间
+        all_orders = self.db.query(models.ProductionOrder).all()
+
+        for order in all_orders:
+            if not order.due_date:
+                continue
+
             last_op = self.db.query(models.Operation).filter(
                 models.Operation.order_id == order.id
             ).order_by(models.Operation.sequence.desc()).first()
-            
-            if last_op and last_op.scheduled_end:
-                if last_op.scheduled_end <= order.due_date:
-                    on_time += 1
-                else:
-                    delayed += 1
-        
-        on_time_rate = (on_time / scheduled * 100) if scheduled > 0 else 0
-        
+
+            if not last_op:
+                continue
+
+            # 确定完工时间：优先缓存 > scheduled_end > confirmed_end > 交货期（待排程）
+            if last_op.id in cached_ops:
+                finish_time = cached_ops[last_op.id].scheduled_end
+            elif last_op.scheduled_end:
+                finish_time = last_op.scheduled_end
+            elif order.confirmed_end:
+                finish_time = order.confirmed_end
+            else:
+                # 待排程订单：以交货期当天08:00作为预计完工时间
+                finish_time = order.due_date.replace(hour=8, minute=0, second=0, microsecond=0)
+
+            if finish_time <= order.due_date:
+                on_time += 1
+            else:
+                delayed += 1
+
+        on_time_rate = (on_time / total * 100) if total > 0 else 0
+
         return schemas.OrderKPI(
             total_orders=total,
             scheduled_orders=scheduled,
@@ -1436,66 +1678,190 @@ class SchedulingEngine:
         )
     
     def _calculate_avg_lead_time(self) -> float:
-        """计算平均提前期"""
-        orders = self.db.query(models.ProductionOrder).filter(
+        """计算平均提前期（含缓存预览排程和生产订单）"""
+        # 读取缓存
+        cached_ops: Dict[int, object] = {}
+        if schedule_cache.has_unsaved_changes:
+            for cached_op in schedule_cache.get_all_operations():
+                cached_ops[cached_op.operation_id] = cached_op
+
+        # 收集所有有效订单：计划订单(SCHEDULED) + 生产订单(有confirmed时间) + 缓存中的订单
+        planned_orders = self.db.query(models.ProductionOrder).filter(
             models.ProductionOrder.status == models.OrderStatus.SCHEDULED.value
         ).all()
-        
-        if not orders:
+
+        production_orders = self.db.query(models.ProductionOrder).filter(
+            models.ProductionOrder.order_type == models.OrderType.PRODUCTION.value,
+            models.ProductionOrder.confirmed_end != None
+        ).all()
+
+        order_ids = set(o.id for o in planned_orders) | set(o.id for o in production_orders)
+
+        if cached_ops:
+            for cached_op in cached_ops.values():
+                op_db = self.db.query(models.Operation).filter(
+                    models.Operation.id == cached_op.operation_id
+                ).first()
+                if op_db:
+                    order_ids.add(op_db.order_id)
+
+        if not order_ids:
             return 0.0
-        
-        total_lead_time = 0
+
+        # 扩展到所有订单（含待排程），待排程订单用交货期估算提前期
+        all_orders = self.db.query(models.ProductionOrder).all()
+
+        total_lead_time = 0.0
         count = 0
-        
-        for order in orders:
+
+        for order in all_orders:
             operations = self.db.query(models.Operation).filter(
-                models.Operation.order_id == order.id,
-                models.Operation.scheduled_start != None
+                models.Operation.order_id == order.id
             ).all()
-            
-            if operations:
-                start = min(op.scheduled_start for op in operations)
-                end = max(op.scheduled_end for op in operations)
-                lead_time = (end - start).total_seconds() / 3600
+
+            start_times = []
+            end_times = []
+
+            for op in operations:
+                if op.id in cached_ops:
+                    c = cached_ops[op.id]
+                    if c.scheduled_start:
+                        start_times.append(c.scheduled_start)
+                    if c.scheduled_end:
+                        end_times.append(c.scheduled_end)
+                elif op.scheduled_start and op.scheduled_end:
+                    start_times.append(op.scheduled_start)
+                    end_times.append(op.scheduled_end)
+
+            # 生产订单无工序时间则用 confirmed_start/end
+            if not start_times and order.confirmed_start and order.confirmed_end:
+                start_times.append(order.confirmed_start)
+                end_times.append(order.confirmed_end)
+
+            # 待排程订单：用所有工序的 run_time 之和估算提前期，以交货期为结束
+            if not start_times and order.due_date and operations:
+                total_run_hours = sum(op.run_time for op in operations if op.run_time)
+                if total_run_hours > 0:
+                    est_end = order.due_date.replace(hour=8, minute=0, second=0, microsecond=0)
+                    est_start = est_end - timedelta(hours=total_run_hours)
+                    start_times.append(est_start)
+                    end_times.append(est_end)
+
+            if start_times and end_times:
+                lead_time = (max(end_times) - min(start_times)).total_seconds() / 3600
                 total_lead_time += lead_time
                 count += 1
-        
+
         return round(total_lead_time / count, 1) if count > 0 else 0.0
     
     def _calculate_capacity_load_by_day(self) -> dict:
-        """计算每日产能负荷"""
+        """计算每日产能负荷（未来14天，含缓存预览排程和生产订单）"""
         result = {}
-        
-        start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-        
+
+        window_start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        window_end = window_start + timedelta(days=14)
+
+        resources = self.db.query(models.Resource).all()
+        total_capacity_per_day = sum(r.capacity_per_day for r in resources)
+
+        # 读取缓存
+        cached_ops: Dict[int, object] = {}
+        if schedule_cache.has_unsaved_changes:
+            for cached_op in schedule_cache.get_all_operations():
+                cached_ops[cached_op.operation_id] = cached_op
+
+        # 初始化每日结构
         for day_offset in range(14):
-            current_date = start_date + timedelta(days=day_offset)
-            next_date = current_date + timedelta(days=1)
-            
-            date_key = current_date.strftime("%Y-%m-%d")
-            
-            # 获取当天的总产能和已用产能
-            resources = self.db.query(models.Resource).all()
-            total_capacity = sum(r.capacity_per_day for r in resources)
-            
-            operations = self.db.query(models.Operation).filter(
-                models.Operation.scheduled_start >= current_date,
-                models.Operation.scheduled_start < next_date
+            day = window_start + timedelta(days=day_offset)
+            result[day.strftime("%Y-%m-%d")] = 0.0
+
+        def _add_hours_to_days(s, e):
+            """将 [s, e) 跨越的工时按天累计到 result"""
+            if not s or not e or e <= s:
+                return
+            cur = max(s, window_start)
+            end = min(e, window_end)
+            while cur < end:
+                day_key = cur.strftime("%Y-%m-%d")
+                next_day = (cur.replace(hour=0, minute=0, second=0, microsecond=0)
+                            + timedelta(days=1))
+                seg_end = min(next_day, end)
+                if day_key in result:
+                    result[day_key] += (seg_end - cur).total_seconds() / 3600
+                cur = seg_end
+
+        # 1) 数据库中已排程工序
+        db_ops = self.db.query(models.Operation).filter(
+            models.Operation.scheduled_start != None,
+            models.Operation.scheduled_start < window_end,
+            models.Operation.scheduled_end > window_start
+        ).all()
+
+        cached_ids = set(cached_ops.keys())
+        for op in db_ops:
+            if op.id in cached_ids:
+                continue  # 以缓存为准，跳过
+            _add_hours_to_days(op.scheduled_start, op.scheduled_end)
+
+        # 2) 缓存工序
+        for cached_op in cached_ops.values():
+            _add_hours_to_days(cached_op.scheduled_start, cached_op.scheduled_end)
+
+        # 3) 生产订单（工序无时间时，用 confirmed_start/end 的持续时长作为负荷）
+        prod_orders = self.db.query(models.ProductionOrder).filter(
+            models.ProductionOrder.order_type == models.OrderType.PRODUCTION.value,
+            models.ProductionOrder.confirmed_start != None,
+            models.ProductionOrder.confirmed_end != None
+        ).all()
+        for order in prod_orders:
+            ops = self.db.query(models.Operation).filter(
+                models.Operation.order_id == order.id,
+                models.Operation.scheduled_start == None
             ).all()
-            
-            used_capacity = sum(
-                (op.scheduled_end - op.scheduled_start).total_seconds() / 3600
-                for op in operations
-                if op.scheduled_end
-            )
-            
-            result[date_key] = {
-                'total_capacity': total_capacity,
-                'used_capacity': round(used_capacity, 1),
-                'utilization': round(used_capacity / total_capacity * 100, 1) if total_capacity > 0 else 0
+            if not ops:
+                continue
+            order_dur = (order.confirmed_end - order.confirmed_start).total_seconds()
+            op_dur_each = order_dur / len(ops) if ops else 0
+            for idx, op in enumerate(ops):
+                op_s = order.confirmed_start + timedelta(seconds=op_dur_each * idx)
+                op_e = op_s + timedelta(seconds=op_dur_each)
+                _add_hours_to_days(op_s, op_e)
+
+        # 4) 待排程工序（已分配资源但无排程时间），用交货期代替
+        pending_with_resource = self.db.query(models.Operation).filter(
+            models.Operation.resource_id != None,
+            models.Operation.scheduled_start == None,
+            ~models.Operation.id.in_(list(cached_ids)) if cached_ids else True
+        ).all()
+        for op in pending_with_resource:
+            order = op.order
+            if order and order.due_date and op.run_time:
+                op_s = order.due_date.replace(hour=8, minute=0, second=0, microsecond=0)
+                op_e = op_s + timedelta(hours=op.run_time)
+                _add_hours_to_days(op_s, op_e)
+
+        # 5) 待排程工序（未分配资源），用交货期代替
+        pending_without_resource = self.db.query(models.Operation).filter(
+            models.Operation.resource_id == None,
+            models.Operation.scheduled_start == None
+        ).all()
+        for op in pending_without_resource:
+            order = op.order
+            if order and order.due_date and op.run_time:
+                op_s = order.due_date.replace(hour=8, minute=0, second=0, microsecond=0)
+                op_e = op_s + timedelta(hours=op.run_time)
+                _add_hours_to_days(op_s, op_e)
+
+        # 组装最终结果
+        final = {}
+        for date_key, used in result.items():
+            final[date_key] = {
+                'total_capacity': total_capacity_per_day,
+                'used_capacity': round(used, 1),
+                'utilization': round(used / total_capacity_per_day * 100, 1) if total_capacity_per_day > 0 else 0
             }
-        
-        return result
+
+        return final
 
     def get_utilization_data(
         self,
@@ -1842,13 +2208,14 @@ class SchedulingEngine:
             
             for order in orders:
                 # 获取该订单在显示区间内的工序（已排程+待排程）
+                buffer_start = start_date - timedelta(days=7)
                 operations = self.db.query(models.Operation).filter(
                     models.Operation.order_id == order.id,
                     or_(
-                        # 已排程工序：排程时间在显示区间内
+                        # 已排程工序：排程时间与显示区间重叠，或结束于区间前 7 天内
                         (models.Operation.scheduled_start != None) & 
                         (models.Operation.scheduled_start <= end_date) &
-                        (models.Operation.scheduled_end >= start_date),
+                        (models.Operation.scheduled_end >= buffer_start),
                         # 待排程工序：订单交货期在显示区间内
                         (models.Operation.scheduled_start == None) & 
                         (order.due_date >= start_date) &
@@ -1950,7 +2317,8 @@ class SchedulingEngine:
                             status=op.status,
                             task_type='operation',
                             order_type=order.order_type,
-                            order_status=order.status
+                            order_status=order.status,
+                            work_hours=op.run_time
                         ))
                     else:
                         # 待排程工序：使用交货日期作为显示时间
@@ -1972,7 +2340,8 @@ class SchedulingEngine:
                                 status=op.status,
                                 task_type='operation',
                                 order_type=order.order_type,
-                                order_status=order.status
+                                order_status=order.status,
+                                work_hours=op.run_time
                             ))
         
         return tasks, links

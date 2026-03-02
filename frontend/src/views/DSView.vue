@@ -150,11 +150,6 @@
           取消计划
         </el-button>
         
-        <!-- 重新计划按钮 -->
-        <el-button class="btn-outline" @click="handleReplan" :loading="replanning">
-          重新计划
-        </el-button>
-        
         <!-- 自动计划按钮 -->
         <el-dropdown trigger="click" @command="handleAutoPlanCommand">
           <el-button class="btn-outline">
@@ -187,6 +182,15 @@
           :class="{ 'btn-highlight': hasUnsavedChanges }"
         >
           {{ hasUnsavedChanges ? '保存计划 *' : '保存计划' }}
+        </el-button>
+        
+        <!-- 日志按钮：查看最近一次启发式/自动计划的详细结果与报错 -->
+        <el-button 
+          type="info" 
+          plain
+          @click="handleShowPlanLog"
+        >
+          日志
         </el-button>
         
       </div>
@@ -304,7 +308,18 @@
             <el-option value="当前日期" label="当前日期" />
             <el-option value="指定日期" label="指定日期" />
           </el-select>
-          <div class="form-item-hint">当前日期：使用系统当前时间；指定日期：使用订单的最早开始日期/交期</div>
+          <div class="form-item-hint">当前日期：使用系统当前时间；指定日期：使用下方选择的日期作为排程起点</div>
+        </el-form-item>
+        <el-form-item v-if="strategyForm.expectedDate === '指定日期'" label="指定日期">
+          <el-date-picker
+            v-model="strategyForm.expectedDateValue"
+            type="date"
+            placeholder="选择期望日期"
+            style="width: 100%"
+            value-format="YYYY-MM-DD"
+            format="YYYY-MM-DD"
+            :prefix-icon="Calendar"
+          />
         </el-form-item>
         <el-form-item label="订单内部关系">
           <el-select v-model="strategyForm.orderInternalRelation" style="width: 100%">
@@ -388,6 +403,47 @@
           </template>
         </el-table-column>
       </el-table>
+    </el-dialog>
+
+    <!-- 计划日志：最近一次启发式/自动计划的详细结果与报错 -->
+    <el-dialog
+      v-model="planLogDialogVisible"
+      title="计划日志"
+      width="720px"
+      destroy-on-close
+    >
+      <template v-if="schedulingStore.planLog">
+        <div class="plan-log-message" :class="{ 'is-error': !schedulingStore.planLog.success }">
+          {{ schedulingStore.planLog.message }}
+        </div>
+        <div class="plan-log-meta" v-if="schedulingStore.planLog.timestamp">
+          时间：{{ schedulingStore.planLog.timestamp }}
+          <template v-if="schedulingStore.planLog.success !== false">
+            ；排程 {{ schedulingStore.planLog.scheduled_orders ?? 0 }} 个订单，
+            {{ schedulingStore.planLog.scheduled_operations ?? 0 }} 道工序
+          </template>
+        </div>
+        <el-table
+          v-if="(schedulingStore.planLog.details || []).length > 0"
+          :data="schedulingStore.planLog.details"
+          style="width: 100%; margin-top: 12px"
+          max-height="360"
+        >
+          <el-table-column prop="order_number" label="订单号" width="140" />
+          <el-table-column prop="success" label="结果" width="80">
+            <template #default="{ row }">
+              <el-tag :type="row.success ? 'success' : 'danger'" size="small">
+                {{ row.success ? '成功' : '失败' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="operations_count" label="工序数" width="80" />
+          <el-table-column prop="error" label="报错详情" min-width="200" show-overflow-tooltip />
+        </el-table>
+      </template>
+      <template v-else>
+        <div class="plan-log-empty">暂无计划日志，请先运行启发式或自动计划。</div>
+      </template>
     </el-dialog>
   </div>
 </template>
@@ -631,6 +687,7 @@ const strategyForm = reactive({
   planningMode: '查找槽位',            // 计划模式
   planningDirection: '向前',           // 计划方向
   expectedDate: '当前日期',            // 期望日期
+  expectedDateValue: null,            // 指定日期时的具体日期（YYYY-MM-DD）
   orderInternalRelation: '不考虑',     // 订单内部关系
   subPlanningMode: '根据调度模式调度相关操作',  // 子计划模式
   errorHandling: '立即终止'            // 计划出错的操作
@@ -656,6 +713,8 @@ const optimizerForm = reactive({
 const alertDialogVisible = ref(false)
 const alertDialogTitle = ref('警报')
 const alertData = ref([])
+
+const planLogDialogVisible = ref(false)
 
 // ===== 加载状态 =====
 const replanning = ref(false)
@@ -1065,6 +1124,9 @@ const handleHeuristicExecute = async () => {
   
   autoPlanning.value = true
   try {
+    // 获取显示区间
+    const [startDate, endDate] = dateRange.value || []
+    
     // 使用算法参数，排序规则和策略配置从"策略"对话框中获取
     const config = {
       finite_capacity: true,
@@ -1075,19 +1137,27 @@ const handleHeuristicExecute = async () => {
       planning_mode: strategyForm.planningMode,         // 计划模式
       planning_direction: strategyForm.planningDirection, // 计划方向
       expected_date: strategyForm.expectedDate,         // 期望日期
+      expected_date_value: strategyForm.expectedDate === '指定日期' ? (strategyForm.expectedDateValue || startDate) : undefined, // 指定日期时的具体日期
       order_internal_relation: strategyForm.orderInternalRelation, // 订单内部关系
       sub_planning_mode: strategyForm.subPlanningMode,  // 子计划模式
       error_handling: strategyForm.errorHandling,       // 计划出错的操作
       planning_horizon: 90,
-      schedule_selected_resources_only: true            // 只排程选中资源上的工序
+      schedule_selected_resources_only: true,           // 只排程选中资源上的工序
+      display_start_date: startDate,                    // 显示区间开始日期
+      display_end_date: endDate                         // 显示区间结束日期
     }
-    await schedulingStore.autoPlan('heuristic', heuristicForm.selected, config, selectedResources.value)
+    const res = await schedulingStore.autoPlan('heuristic', heuristicForm.selected, config, selectedResources.value)
     
-    ElMessage.success('启发式计划执行成功')
-    heuristicDialogVisible.value = false
-    await loadGanttData()
+    if (res && res.success === false) {
+      ElMessage.error(res.message || '显示区间内产能已用尽，排程已终止')
+      await loadGanttData()
+    } else {
+      ElMessage.success('启发式计划执行成功')
+      heuristicDialogVisible.value = false
+      await loadGanttData()
+    }
   } catch (error) {
-    ElMessage.error('启发式计划执行失败')
+    ElMessage.error(error?.response?.data?.message || '启发式计划执行失败')
   } finally {
     autoPlanning.value = false
   }
@@ -1151,6 +1221,10 @@ const savingPlan = ref(false)
 
 // 是否有未保存的排程更改
 const hasUnsavedChanges = computed(() => schedulingStore.hasUnsavedChanges)
+
+const handleShowPlanLog = () => {
+  planLogDialogVisible.value = true
+}
 
 const handleSavePlan = async () => {
   // 如果有未保存的更改，优先保存缓存数据
@@ -1611,6 +1685,26 @@ onBeforeUnmount(() => {
   50% {
     box-shadow: 0 0 0 8px rgba(64, 158, 255, 0);
   }
+}
+
+.plan-log-message {
+  padding: 8px 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  &.is-error {
+    color: var(--el-color-danger);
+  }
+}
+.plan-log-meta {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-bottom: 4px;
+}
+.plan-log-empty {
+  color: var(--el-text-color-secondary);
+  text-align: center;
+  padding: 24px;
 }
 
 </style>
