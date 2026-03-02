@@ -1,215 +1,192 @@
 <template>
-  <div class="ds-resource-view">
-    <!-- 筛选状态提示 -->
-    <div v-if="dsFiltersStore.selectedResourceIds.length > 0" class="filter-hint">
-      <el-icon><Filter /></el-icon>
-      <span>已关联"详细计划表"筛选条件，显示 {{ resourceList.length }} 个资源</span>
-      <el-tag v-for="name in dsFiltersStore.selectedResourceNames.slice(0, 3)" :key="name" size="small" type="info" class="filter-tag">
-        {{ name }}
-      </el-tag>
-      <span v-if="dsFiltersStore.selectedResourceNames.length > 3" class="more-hint">
-        等 {{ dsFiltersStore.selectedResourceNames.length }} 个资源
-      </span>
-      <el-button type="primary" link size="small" @click="goToDetailedPlan">修改筛选</el-button>
+  <div class="master-data-page">
+    <div class="page-header">
+      <h1>
+        <el-icon><Grid /></el-icon>
+        资源
+      </h1>
+      <el-button type="primary" @click="handleAdd">
+        <el-icon><Plus /></el-icon>
+        新增资源
+      </el-button>
     </div>
     
-    <!-- 顶部功能按钮栏 -->
-    <div class="toolbar">
-      <div class="toolbar-left">
-        <el-button @click="handleDefineShift">定义班次</el-button>
-        <el-button @click="handleDefineShiftOrder">定义班次顺序</el-button>
-      </div>
-    </div>
-    
-    <!-- 数据表格 -->
-    <div class="table-container">
-      <el-table
-        ref="tableRef"
-        :data="resourceList"
-        v-loading="loading"
-        border
-        size="small"
-        class="ds-resource-table"
-        @selection-change="handleSelectionChange"
-      >
-        <!-- 复选框列 -->
-        <el-table-column type="selection" width="40" align="center" />
-        
-        <!-- 资源 -->
-        <el-table-column prop="code" label="资源" min-width="160" />
-        
-        <!-- 资源名称 -->
+    <el-card>
+      <el-table :data="allResourceList" v-loading="loading" stripe table-layout="auto">
+        <el-table-column prop="code" label="资源" min-width="120" />
         <el-table-column prop="name" label="资源名称" min-width="120" />
-        
-        <!-- 位置 -->
         <el-table-column prop="location" label="位置" min-width="80" align="center" />
-        
-        <!-- 开始 -->
-        <el-table-column prop="start_time" label="开始" min-width="90" align="center" />
-        
-        <!-- 结束 -->
-        <el-table-column prop="end_time" label="结束" min-width="90" align="center" />
-        
-        <!-- 休息期间 -->
-        <el-table-column prop="break_time" label="休息期间" min-width="90" align="center" />
-        
-        <!-- 利用率百分比 -->
-        <el-table-column prop="utilization_percent" label="利用率百分比" min-width="100" align="right">
+        <el-table-column label="工作中心" min-width="100">
           <template #default="{ row }">
-            {{ row.utilization_percent.toFixed(3) }}
+            {{ getWorkCenterName(row.work_center_id) }}
           </template>
         </el-table-column>
-        
-        <!-- 生产时间/小时 -->
         <el-table-column prop="production_hours" label="生产时间/小时" min-width="110" align="right">
           <template #default="{ row }">
             {{ row.production_hours.toFixed(2) }}
           </template>
         </el-table-column>
-        
-        <!-- 容量 -->
-        <el-table-column prop="capacity" label="容量" min-width="80" align="right">
-          <template #default="{ row }">
-            {{ row.capacity !== null && row.capacity !== undefined && row.capacity !== '' ? row.capacity.toFixed(3) : '' }}
-          </template>
-        </el-table-column>
-        
-        <!-- 有限计划 -->
         <el-table-column prop="finite_planning" label="有限计划" min-width="80" align="center">
           <template #default="{ row }">
             <el-checkbox v-model="row.finite_planning" disabled />
           </template>
         </el-table-column>
-        
-        <!-- 瓶颈资源 -->
         <el-table-column prop="is_bottleneck" label="瓶颈资源" min-width="80" align="center">
           <template #default="{ row }">
             <el-checkbox v-model="row.is_bottleneck" disabled />
           </template>
         </el-table-column>
-        
-        <!-- 资源模式 -->
-        <el-table-column prop="resource_mode" label="资源模式" min-width="80" align="center">
+        <el-table-column label="操作" width="220" align="center">
           <template #default="{ row }">
-            {{ getResourceMode(row.capacity) }}
+            <div class="action-buttons">
+              <el-button type="primary" link @click="handleView(row)">详情</el-button>
+              <el-button type="primary" link @click="handleEdit(row)">编辑</el-button>
+              <el-button type="primary" link @click="handleDelete(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
-        
-        <!-- 时区 -->
-        <el-table-column prop="timezone" label="时区" min-width="60" align="center" />
-        
-        <!-- 工厂日历 -->
-        <el-table-column prop="factory_calendar" label="工厂日历" min-width="80" align="center" />
-        
-        <!-- 计划人员组 -->
-        <el-table-column prop="planning_group" label="计划人员组" min-width="90" align="center" />
       </el-table>
-    </div>
+    </el-card>
     
-    <!-- 定义班次对话框 -->
-    <el-dialog v-model="shiftDialogVisible" title="定义班次" width="600px">
-      <el-form :model="shiftForm" label-width="100px">
-        <el-form-item label="班次名称">
-          <el-input v-model="shiftForm.name" placeholder="请输入班次名称" />
-        </el-form-item>
-        <el-form-item label="开始时间">
-          <el-time-picker v-model="shiftForm.start_time" placeholder="选择开始时间" format="HH:mm:ss" />
-        </el-form-item>
-        <el-form-item label="结束时间">
-          <el-time-picker v-model="shiftForm.end_time" placeholder="选择结束时间" format="HH:mm:ss" />
-        </el-form-item>
-        <el-form-item label="休息时间">
-          <el-time-picker v-model="shiftForm.break_time" placeholder="选择休息时间" format="HH:mm:ss" />
-        </el-form-item>
-      </el-form>
+    <!-- 显示所有字段对话框 -->
+    <el-dialog 
+      v-model="viewDialogVisible" 
+      :title="`资源详情 - ${currentResource?.name || ''}`"
+      width="800px"
+    >
+      <el-descriptions :column="2" border v-if="currentResource">
+        <el-descriptions-item label="资源">{{ currentResource.code }}</el-descriptions-item>
+        <el-descriptions-item label="资源名称">{{ currentResource.name }}</el-descriptions-item>
+        <el-descriptions-item label="位置">{{ currentResource.location }}</el-descriptions-item>
+        <el-descriptions-item label="工作中心">{{ getWorkCenterName(currentResource.work_center_id) }}</el-descriptions-item>
+        <el-descriptions-item label="工作中心描述">{{ getWorkCenterDescription(currentResource.work_center_id) }}</el-descriptions-item>
+        <el-descriptions-item label="开始">{{ currentResource.start_time }}</el-descriptions-item>
+        <el-descriptions-item label="结束">{{ currentResource.end_time }}</el-descriptions-item>
+        <el-descriptions-item label="休息期间">{{ currentResource.break_time }}</el-descriptions-item>
+        <el-descriptions-item label="利用率百分比">{{ currentResource.utilization_percent.toFixed(3) }}</el-descriptions-item>
+        <el-descriptions-item label="生产时间/小时">{{ currentResource.production_hours.toFixed(2) }}</el-descriptions-item>
+        <el-descriptions-item label="容量">
+          {{ currentResource.capacity !== null && currentResource.capacity !== undefined && currentResource.capacity !== '' ? currentResource.capacity.toFixed(3) : '-' }}
+        </el-descriptions-item>
+        <el-descriptions-item label="有限计划">
+          <el-tag :type="currentResource.finite_planning ? 'success' : 'info'" size="small">
+            {{ currentResource.finite_planning ? '是' : '否' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="瓶颈资源">
+          <el-tag :type="currentResource.is_bottleneck ? 'warning' : 'info'" size="small">
+            {{ currentResource.is_bottleneck ? '是' : '否' }}
+          </el-tag>
+        </el-descriptions-item>
+        <el-descriptions-item label="资源模式">{{ getResourceMode(currentResource.capacity) }}</el-descriptions-item>
+        <el-descriptions-item label="时区">{{ currentResource.timezone }}</el-descriptions-item>
+        <el-descriptions-item label="工厂日历">{{ currentResource.factory_calendar }}</el-descriptions-item>
+        <el-descriptions-item label="计划人员组">{{ currentResource.planning_group }}</el-descriptions-item>
+      </el-descriptions>
       <template #footer>
-        <el-button @click="shiftDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleShiftSave">确定</el-button>
+        <el-button @click="viewDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
     
-    <!-- 定义班次顺序对话框 -->
-    <el-dialog v-model="shiftOrderDialogVisible" title="定义班次顺序" width="600px">
-      <el-form :model="shiftOrderForm" label-width="100px">
-        <el-form-item label="班次顺序">
-          <el-select v-model="shiftOrderForm.order" multiple placeholder="选择班次顺序" style="width: 100%">
-            <el-option label="早班" value="morning" />
-            <el-option label="中班" value="afternoon" />
-            <el-option label="晚班" value="night" />
+    <!-- 编辑/新增资源对话框 -->
+    <el-dialog 
+      v-model="editDialogVisible" 
+      :title="isEdit ? '编辑资源' : '新增资源'"
+      width="600px"
+    >
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <el-form-item label="资源代码" prop="code">
+          <el-input v-model="form.code" :disabled="isEdit" placeholder="请输入资源代码" />
+        </el-form-item>
+        <el-form-item label="资源名称" prop="name">
+          <el-input v-model="form.name" placeholder="请输入资源名称" />
+        </el-form-item>
+        <el-form-item label="工作中心" prop="work_center_id">
+          <el-select v-model="form.work_center_id" placeholder="请选择工作中心" style="width: 100%">
+            <el-option 
+              v-for="wc in workCenters" 
+              :key="wc.id" 
+              :label="`${wc.code} - ${wc.name}`" 
+              :value="wc.id" 
+            />
           </el-select>
         </el-form-item>
-        <el-form-item label="循环模式">
-          <el-radio-group v-model="shiftOrderForm.cycle_mode">
-            <el-radio value="daily">每日</el-radio>
-            <el-radio value="weekly">每周</el-radio>
-          </el-radio-group>
+        <el-form-item label="效率">
+          <el-input-number v-model="form.efficiency" :min="0" :max="2" :step="0.1" :precision="2" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="每日可用产能">
+          <el-input-number v-model="form.capacity_per_day" :min="0" :step="1" :precision="1" style="width: 100%" />
+          <div class="form-tip">单位：小时/天</div>
+        </el-form-item>
+        <el-form-item label="描述">
+          <el-input v-model="form.description" type="textarea" rows="2" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="shiftOrderDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleShiftOrderSave">确定</el-button>
+        <el-button @click="editDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Filter } from '@element-plus/icons-vue'
+import { ref, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Grid, Plus } from '@element-plus/icons-vue'
 import { masterDataApi } from '@/api'
-import { useDSFiltersStore } from '@/stores/dsFilters'
-
-const router = useRouter()
-
-// 共享筛选store
-const dsFiltersStore = useDSFiltersStore()
 
 // 加载状态
 const loading = ref(false)
 
-// 表格引用
-const tableRef = ref(null)
-
-// 资源列表数据（所有资源）
+// 资源列表数据（所有资源，不再过滤）
 const allResourceList = ref([])
 
-// 根据详细计划表筛选条件过滤后的资源列表
-const resourceList = computed(() => {
-  const selectedIds = dsFiltersStore.selectedResourceIds
-  // 如果详细计划表没有选择资源，显示所有资源
-  if (!selectedIds || selectedIds.length === 0) {
-    return allResourceList.value
-  }
-  // 否则只显示选中的资源
-  return allResourceList.value.filter(r => selectedIds.includes(r.id))
-})
+// 工作中心列表
+const workCenters = ref([])
 
-// 选中的资源
-const selectedResources = ref([])
+// 对话框状态
+const viewDialogVisible = ref(false)
+const editDialogVisible = ref(false)
+const isEdit = ref(false)
+const currentResource = ref(null)
+const submitting = ref(false)
+const formRef = ref(null)
 
-// 定义班次对话框
-const shiftDialogVisible = ref(false)
-const shiftForm = reactive({
+// 表单数据
+const form = ref({
+  code: '',
   name: '',
-  start_time: null,
-  end_time: null,
-  break_time: null
+  work_center_id: null,
+  efficiency: 1.0,
+  capacity_per_day: 8.0,
+  description: ''
 })
 
-// 定义班次顺序对话框
-const shiftOrderDialogVisible = ref(false)
-const shiftOrderForm = reactive({
-  order: [],
-  cycle_mode: 'daily'
-})
+// 表单验证规则
+const rules = {
+  code: [{ required: true, message: '请输入资源代码', trigger: 'blur' }],
+  name: [{ required: true, message: '请输入资源名称', trigger: 'blur' }],
+  work_center_id: [{ required: true, message: '请选择工作中心', trigger: 'change' }]
+}
 
 // 资源模式计算逻辑
 const getResourceMode = (capacity) => {
   return (capacity === null || capacity === undefined || capacity === '') 
     ? '单一' 
     : '多重'
+}
+
+// 获取工作中心名称
+const getWorkCenterName = (workCenterId) => {
+  const wc = workCenters.value.find(w => w.id === workCenterId)
+  return wc ? wc.name : '-'
+}
+
+// 获取工作中心描述
+const getWorkCenterDescription = (workCenterId) => {
+  const wc = workCenters.value.find(w => w.id === workCenterId)
+  return wc ? wc.description || '-' : '-'
 }
 
 // 将 "HH:mm:ss" 或 "HH:mm" 转为从 0 点起的分钟数
@@ -232,6 +209,29 @@ const calcProductionHours = (startTime, endTime, breakTime) => {
   return Math.round(minutes / 60 * 100) / 100
 }
 
+// 根据资源获取容量值（模拟逻辑：部分资源有容量，部分没有）
+const getCapacityValue = (resource) => {
+  // 模拟：如果 capacity_per_day > 10，则认为有容量值
+  if (resource.capacity_per_day && resource.capacity_per_day > 10) {
+    return resource.capacity_per_day
+  }
+  // 模拟：如果名称包含特定关键字，设置容量
+  if (resource.name?.includes('多') || resource.name?.includes('并行')) {
+    return 10.0
+  }
+  return null
+}
+
+// 加载工作中心数据
+const loadWorkCenters = async () => {
+  try {
+    workCenters.value = await masterDataApi.getWorkCenters()
+  } catch (error) {
+    console.error('Failed to load work centers:', error)
+    ElMessage.error('加载工作中心数据失败')
+  }
+}
+
 // 加载资源数据
 const loadResources = async () => {
   loading.value = true
@@ -249,6 +249,7 @@ const loadResources = async () => {
         id: resource.id,
         code: resource.code,
         name: resource.name,
+        work_center_id: resource.work_center_id,
         location: resource.work_center?.code || resource.work_center_id || '1020',
         start_time,
         end_time,
@@ -260,7 +261,10 @@ const loadResources = async () => {
         is_bottleneck: resource.name?.includes('CNC') || resource.name?.includes('加工') || resource.name?.includes('瓶颈') || false,
         timezone: 'CET',
         factory_calendar: resource.work_center?.code === 'CN' ? 'CN' : '01',
-        planning_group: 'A'
+        planning_group: 'A',
+        efficiency: resource.efficiency,
+        capacity_per_day: resource.capacity_per_day,
+        description: resource.description
       }
     })
   } catch (error) {
@@ -271,195 +275,126 @@ const loadResources = async () => {
   }
 }
 
-// 根据资源获取容量值（模拟逻辑：部分资源有容量，部分没有）
-const getCapacityValue = (resource) => {
-  // 模拟：如果 capacity_per_day > 10，则认为有容量值
-  if (resource.capacity_per_day && resource.capacity_per_day > 10) {
-    return resource.capacity_per_day
+// 显示资源详情
+const handleView = (row) => {
+  currentResource.value = row
+  viewDialogVisible.value = true
+}
+
+// 新增资源
+const handleAdd = () => {
+  isEdit.value = false
+  form.value = {
+    code: '',
+    name: '',
+    work_center_id: null,
+    efficiency: 1.0,
+    capacity_per_day: 8.0,
+    description: ''
   }
-  // 模拟：如果名称包含特定关键字，设置容量
-  if (resource.name?.includes('多') || resource.name?.includes('并行')) {
-    return 10.0
+  editDialogVisible.value = true
+}
+
+// 编辑资源
+const handleEdit = (row) => {
+  isEdit.value = true
+  form.value = {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    work_center_id: row.work_center_id,
+    efficiency: row.efficiency || 1.0,
+    capacity_per_day: row.capacity_per_day || 8.0,
+    description: row.description || ''
   }
-  return null
+  editDialogVisible.value = true
 }
 
-// 处理选择变化
-const handleSelectionChange = (selection) => {
-  selectedResources.value = selection
+// 删除资源
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定要删除资源"${row.name}"吗？`, '确认删除', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    
+    // TODO: 调用删除API
+    // await masterDataApi.deleteResource(row.id)
+    
+    ElMessage.success('删除成功')
+    loadResources()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
 }
 
-// 打开定义班次对话框
-const handleDefineShift = () => {
-  shiftForm.name = ''
-  shiftForm.start_time = null
-  shiftForm.end_time = null
-  shiftForm.break_time = null
-  shiftDialogVisible.value = true
-}
-
-// 保存班次定义
-const handleShiftSave = () => {
-  ElMessage.success('班次定义已保存')
-  shiftDialogVisible.value = false
-}
-
-// 打开定义班次顺序对话框
-const handleDefineShiftOrder = () => {
-  shiftOrderForm.order = []
-  shiftOrderForm.cycle_mode = 'daily'
-  shiftOrderDialogVisible.value = true
-}
-
-// 保存班次顺序定义
-const handleShiftOrderSave = () => {
-  ElMessage.success('班次顺序已保存')
-  shiftOrderDialogVisible.value = false
-}
-
-// 跳转到详细计划表
-const goToDetailedPlan = () => {
-  router.push('/ds')
+// 提交表单
+const handleSubmit = async () => {
+  try {
+    await formRef.value.validate()
+    submitting.value = true
+    
+    if (isEdit.value) {
+      // TODO: 调用更新API
+      // await masterDataApi.updateResource(form.value.id, form.value)
+      ElMessage.success('更新成功')
+    } else {
+      // TODO: 调用创建API
+      // await masterDataApi.createResource(form.value)
+      ElMessage.success('创建成功')
+    }
+    
+    editDialogVisible.value = false
+    loadResources()
+  } catch (error) {
+    if (error !== false) {
+      ElMessage.error(isEdit.value ? '更新失败' : '创建失败')
+    }
+  } finally {
+    submitting.value = false
+  }
 }
 
 // 初始化
 onMounted(() => {
+  loadWorkCenters()
   loadResources()
 })
 </script>
 
 <style lang="scss" scoped>
-.ds-resource-view {
-  display: flex;
-  flex-direction: column;
-  height: calc(100vh - 80px);
-  background: #fff;
+.master-data-page {
+  padding: 24px;
 }
 
-// 筛选状态提示
-.filter-hint {
+.page-header {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  background: #ecf5ff;
-  border-bottom: 1px solid #d9ecff;
-  font-size: 13px;
-  color: #409eff;
-  
-  .el-icon {
-    font-size: 16px;
-  }
-  
-  .filter-tag {
-    margin: 0 2px;
-  }
-  
-  .more-hint {
-    color: #909399;
-  }
-}
-
-// 工具栏样式
-.toolbar {
-  display: flex;
-  align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  background: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  align-items: center;
+  margin-bottom: 24px;
   
-  .toolbar-left {
+  h1 {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 500;
     display: flex;
     align-items: center;
     gap: 8px;
   }
 }
 
-// 表格容器
-.table-container {
-  flex: 1;
-  padding: 0;
-  overflow: auto;
+.action-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
 }
 
-// DS资源表格样式 - 参照附件图片风格
-.ds-resource-table {
-  width: 100%;
-  
-  // 表头样式
-  :deep(.el-table__header-wrapper) {
-    th.el-table__cell {
-      background-color: #f5f5f5 !important;
-      color: #333;
-      font-weight: 500;
-      font-size: 12px;
-      padding: 8px 0;
-      border-bottom: 1px solid #dcdcdc;
-      border-right: 1px solid #dcdcdc;
-      
-      .cell {
-        padding: 0 8px;
-        line-height: 1.4;
-      }
-    }
-  }
-  
-  // 行样式
-  :deep(.el-table__body-wrapper) {
-    tr.el-table__row {
-      background-color: #fff;
-      
-      &:hover > td.el-table__cell {
-        background-color: #f5f7fa !important;
-      }
-      
-      td.el-table__cell {
-        padding: 6px 0;
-        font-size: 12px;
-        color: #333;
-        border-bottom: 1px solid #e8e8e8;
-        border-right: 1px solid #e8e8e8;
-        
-        .cell {
-          padding: 0 8px;
-          line-height: 1.4;
-        }
-      }
-    }
-  }
-  
-  // 边框样式
-  :deep(.el-table__inner-wrapper::before) {
-    display: none;
-  }
-  
-  // checkbox 样式
-  :deep(.el-checkbox) {
-    .el-checkbox__inner {
-      width: 14px;
-      height: 14px;
-    }
-    
-    &.is-disabled {
-      .el-checkbox__inner {
-        background-color: #fff;
-        border-color: #dcdfe6;
-        
-        &::after {
-          border-color: #c0c4cc;
-        }
-      }
-      
-      &.is-checked .el-checkbox__inner {
-        background-color: #f5f5f5;
-        border-color: #c0c4cc;
-        
-        &::after {
-          border-color: #606266;
-        }
-      }
-    }
-  }
+.form-tip {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
 }
 </style>

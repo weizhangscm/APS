@@ -70,7 +70,11 @@ def create_order(order: schemas.ProductionOrderCreate, db: Session = Depends(get
         raise HTTPException(status_code=400, detail="产品没有有效的工艺路线")
     
     # Create order
-    db_order = models.ProductionOrder(**order.model_dump())
+    order_data = order.model_dump()
+    # 生产订单默认状态为已排程
+    if order_data.get('order_type') == models.OrderType.PRODUCTION.value:
+        order_data['status'] = models.OrderStatus.SCHEDULED.value
+    db_order = models.ProductionOrder(**order_data)
     db.add(db_order)
     db.commit()
     db.refresh(db_order)
@@ -97,6 +101,8 @@ def create_order(order: schemas.ProductionOrderCreate, db: Session = Depends(get
             work_center_to_first_resource[res.work_center_id] = res.id
     
     # Create operations for this order
+    is_production = db_order.order_type == models.OrderType.PRODUCTION.value
+    
     for routing_op in routing_ops:
         run_time = routing_op.setup_time + (routing_op.run_time_per_unit * order.quantity)
         
@@ -109,6 +115,9 @@ def create_order(order: schemas.ProductionOrderCreate, db: Session = Depends(get
             )
         )
         
+        # 生产订单的工序默认状态为已排程
+        operation_status = schemas.OperationStatus.SCHEDULED.value if is_production else schemas.OperationStatus.PENDING.value
+        
         db_operation = models.Operation(
             order_id=db_order.id,
             routing_operation_id=routing_op.id,
@@ -117,7 +126,7 @@ def create_order(order: schemas.ProductionOrderCreate, db: Session = Depends(get
             name=routing_op.name,
             setup_time=routing_op.setup_time,
             run_time=run_time,
-            status=schemas.OperationStatus.PENDING.value
+            status=operation_status
         )
         db.add(db_operation)
     
@@ -207,6 +216,12 @@ def convert_to_production(
     
     # 转换订单类型
     db_order.order_type = models.OrderType.PRODUCTION.value
+    # 生产订单状态应为已排程
+    db_order.status = models.OrderStatus.SCHEDULED.value
+    
+    # 将所有工序状态更新为已排程
+    for operation in operations:
+        operation.status = models.OperationStatus.SCHEDULED.value
     
     db.commit()
     db.refresh(db_order)

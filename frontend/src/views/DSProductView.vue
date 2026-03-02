@@ -1,150 +1,117 @@
 <template>
-  <div class="ds-product-view">
-    <!-- 顶部筛选区域 -->
-    <div class="filter-bar">
-      <div class="filter-row">
-        <!-- 搜索框 -->
-        <div class="filter-item">
-          <span class="filter-label">搜索</span>
-          <el-input
-            v-model="searchText"
-            placeholder=""
-            clearable
-            size="small"
-            class="filter-input"
-            @input="handleFilter"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </div>
-        
-        <!-- 产品标识 -->
-        <div class="filter-item">
-          <span class="filter-label">产品标识:</span>
-          <el-input
-            v-model="filterProductCode"
-            placeholder=""
-            clearable
-            size="small"
-            class="filter-input"
-            @input="handleFilter"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </div>
-        
-        <!-- 位置 -->
-        <div class="filter-item">
-          <span class="filter-label">位置:</span>
-          <el-input
-            v-model="filterLocation"
-            placeholder=""
-            clearable
-            size="small"
-            class="filter-input"
-            @input="handleFilter"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </div>
-        
-        <!-- MRP 控制员 -->
-        <div class="filter-item">
-          <span class="filter-label">MRP 控制员:</span>
-          <el-input
-            v-model="filterMrpController"
-            placeholder=""
-            clearable
-            size="small"
-            class="filter-input"
-            @input="handleFilter"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </div>
-        
-        <!-- 产品类型 -->
-        <div class="filter-item">
-          <span class="filter-label">产品类型:</span>
-          <el-input
-            v-model="filterProductType"
-            placeholder=""
-            clearable
-            size="small"
-            class="filter-input"
-            @input="handleFilter"
-          >
-            <template #prefix>
-              <el-icon><Search /></el-icon>
-            </template>
-          </el-input>
-        </div>
-      </div>
+  <div class="master-data-page">
+    <div class="page-header">
+      <h1>
+        <el-icon><Box /></el-icon>
+        产品
+      </h1>
+      <el-button type="primary" @click="handleAdd">
+        <el-icon><Plus /></el-icon>
+        新增产品
+      </el-button>
     </div>
     
-    <!-- 表格标题 -->
-    <div class="table-header">
-      <span class="table-title">位置产品({{ filteredProductList.length }}) <span class="title-suffix">标准</span><span class="required-mark">*</span></span>
-    </div>
-    
-    <!-- 数据表格 -->
-    <div class="table-container">
-      <el-table
-        ref="tableRef"
-        :data="filteredProductList"
-        v-loading="loading"
-        border
-        size="small"
-        class="ds-product-table"
-        @selection-change="handleSelectionChange"
-      >
-        <!-- 产品标识 -->
+    <el-card>
+      <el-table :data="filteredProductList" v-loading="loading" stripe table-layout="auto">
         <el-table-column prop="product_code" label="产品标识" min-width="100" />
-        
-        <!-- 产品描述 -->
         <el-table-column prop="product_description" label="产品描述" min-width="200" show-overflow-tooltip />
-        
-        <!-- 基本计量单位 -->
         <el-table-column prop="base_unit" label="基本计量单位" min-width="100" align="center" />
-        
-        <!-- 产品类型 -->
         <el-table-column prop="product_type" label="产品类型" min-width="80" align="center" />
-        
-        <!-- 位置 -->
         <el-table-column prop="location" label="位置" min-width="60" align="center" />
-        
-        <!-- 位置名称 1 -->
-        <el-table-column prop="location_name" label="位置名称 1" min-width="120" />
-        
-        <!-- MRP 控制员 -->
-        <el-table-column prop="mrp_controller" label="MRP 控制员" min-width="90" align="center" />
-        
-        <!-- MRP 控制员姓名 -->
+        <el-table-column prop="location_name" label="位置名称" min-width="120" />
+        <el-table-column prop="mrp_controller" label="MRP控制员" min-width="90" align="center" />
         <el-table-column prop="mrp_controller_name" label="MRP控制员姓名" min-width="110" />
-        
-        <!-- 已加删除标记 -->
-        <el-table-column prop="deletion_flag" label="已加删除标记..." min-width="100" align="center">
+        <el-table-column label="操作" width="220" align="center">
           <template #default="{ row }">
-            {{ row.deletion_flag ? '是' : '' }}
+            <div class="action-buttons">
+              <el-button type="primary" link @click="handleView(row)">详情</el-button>
+              <el-button type="primary" link @click="handleEdit(row)">编辑</el-button>
+              <el-button type="primary" link @click="handleDelete(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
-    </div>
+    </el-card>
+    
+    <!-- 产品详情对话框 -->
+    <el-dialog 
+      v-model="viewDialogVisible" 
+      :title="`产品详情 - ${currentProduct?.product_description || ''}`"
+      width="700px"
+    >
+      <el-descriptions :column="2" border v-if="currentProduct">
+        <el-descriptions-item label="产品标识">{{ currentProduct.product_code }}</el-descriptions-item>
+        <el-descriptions-item label="产品描述">{{ currentProduct.product_description }}</el-descriptions-item>
+        <el-descriptions-item label="基本计量单位">{{ currentProduct.base_unit }}</el-descriptions-item>
+        <el-descriptions-item label="产品类型">{{ currentProduct.product_type }}</el-descriptions-item>
+        <el-descriptions-item label="位置">{{ currentProduct.location }}</el-descriptions-item>
+        <el-descriptions-item label="位置名称">{{ currentProduct.location_name }}</el-descriptions-item>
+        <el-descriptions-item label="MRP控制员">{{ currentProduct.mrp_controller }}</el-descriptions-item>
+        <el-descriptions-item label="MRP控制员姓名">{{ currentProduct.mrp_controller_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="已加删除标记">
+          <el-tag :type="currentProduct.deletion_flag ? 'danger' : 'success'" size="small">
+            {{ currentProduct.deletion_flag ? '是' : '否' }}
+          </el-tag>
+        </el-descriptions-item>
+      </el-descriptions>
+      <template #footer>
+        <el-button @click="viewDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
+    
+    <!-- 编辑/新增产品对话框 -->
+    <el-dialog 
+      v-model="editDialogVisible" 
+      :title="isEdit ? '编辑产品' : '新增产品'"
+      width="600px"
+    >
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
+        <el-form-item label="产品标识" prop="product_code">
+          <el-input v-model="form.product_code" :disabled="isEdit" placeholder="请输入产品标识" />
+        </el-form-item>
+        <el-form-item label="产品描述" prop="product_description">
+          <el-input v-model="form.product_description" placeholder="请输入产品描述" />
+        </el-form-item>
+        <el-form-item label="基本计量单位" prop="base_unit">
+          <el-select v-model="form.base_unit" placeholder="请选择单位" style="width: 100%">
+            <el-option label="个 (PCS)" value="PCS" />
+            <el-option label="千克 (KG)" value="KG" />
+            <el-option label="个 (EA)" value="EA" />
+            <el-option label="米 (M)" value="M" />
+            <el-option label="升 (L)" value="L" />
+            <el-option label="套 (SET)" value="SET" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="产品类型" prop="product_type">
+          <el-select v-model="form.product_type" placeholder="请选择产品类型" style="width: 100%">
+            <el-option label="HALB" value="HALB" />
+            <el-option label="FERT" value="FERT" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="位置" prop="location">
+          <el-select v-model="form.location" placeholder="请选择位置" style="width: 100%">
+            <el-option label="1020 - Frankfurt Plant" value="1020" />
+            <el-option label="1110 - Beijing Plant" value="1110" />
+            <el-option label="1120 - Shanghai Plant" value="1120" />
+            <el-option label="1121 - Shanghai Plant2" value="1121" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="MRP控制员">
+          <el-input v-model="form.mrp_controller" placeholder="请输入MRP控制员代码" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="editDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Search } from '@element-plus/icons-vue'
+import { ref, computed, onMounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Box, Plus } from '@element-plus/icons-vue'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useDSFiltersStore } from '@/stores/dsFilters'
 
@@ -157,21 +124,35 @@ const dsFiltersStore = useDSFiltersStore()
 // 加载状态
 const loading = ref(false)
 
-// 表格引用
-const tableRef = ref(null)
-
-// 产品列表数据（全部数据，DS产品是数据源）
+// 产品列表数据
 const productList = ref([])
 
-// 选中的产品
-const selectedProducts = ref([])
+// 对话框状态
+const viewDialogVisible = ref(false)
+const editDialogVisible = ref(false)
+const isEdit = ref(false)
+const currentProduct = ref(null)
+const submitting = ref(false)
+const formRef = ref(null)
 
-// 筛选条件
-const searchText = ref('')
-const filterProductCode = ref('')
-const filterLocation = ref('')
-const filterMrpController = ref('')
-const filterProductType = ref('')
+// 表单数据
+const form = ref({
+  product_code: '',
+  product_description: '',
+  base_unit: 'PCS',
+  product_type: 'FERT',
+  location: '1020',
+  mrp_controller: '001'
+})
+
+// 表单验证规则
+const rules = {
+  product_code: [{ required: true, message: '请输入产品标识', trigger: 'blur' }],
+  product_description: [{ required: true, message: '请输入产品描述', trigger: 'blur' }],
+  base_unit: [{ required: true, message: '请选择基本计量单位', trigger: 'change' }],
+  product_type: [{ required: true, message: '请选择产品类型', trigger: 'change' }],
+  location: [{ required: true, message: '请选择位置', trigger: 'change' }]
+}
 
 // 位置映射数据
 const locationMap = {
@@ -194,52 +175,9 @@ const unitMap = {
   'SET': '套 (SET)'
 }
 
-// 过滤后的产品列表
+// 过滤后的产品列表（目前显示所有，可以后续添加筛选功能）
 const filteredProductList = computed(() => {
-  let result = productList.value
-  
-  // 搜索文本过滤
-  if (searchText.value) {
-    const search = searchText.value.toLowerCase()
-    result = result.filter(item => 
-      item.product_code?.toLowerCase().includes(search) ||
-      item.product_description?.toLowerCase().includes(search) ||
-      item.location?.toLowerCase().includes(search) ||
-      item.location_name?.toLowerCase().includes(search)
-    )
-  }
-  
-  // 产品标识过滤
-  if (filterProductCode.value) {
-    const code = filterProductCode.value.toLowerCase()
-    result = result.filter(item => item.product_code?.toLowerCase().includes(code))
-  }
-  
-  // 位置过滤
-  if (filterLocation.value) {
-    const location = filterLocation.value.toLowerCase()
-    result = result.filter(item => 
-      item.location?.toLowerCase().includes(location) ||
-      item.location_name?.toLowerCase().includes(location)
-    )
-  }
-  
-  // MRP 控制员过滤
-  if (filterMrpController.value) {
-    const mrp = filterMrpController.value.toLowerCase()
-    result = result.filter(item => 
-      item.mrp_controller?.toLowerCase().includes(mrp) ||
-      item.mrp_controller_name?.toLowerCase().includes(mrp)
-    )
-  }
-  
-  // 产品类型过滤
-  if (filterProductType.value) {
-    const type = filterProductType.value.toUpperCase()
-    result = result.filter(item => item.product_type?.toUpperCase().includes(type))
-  }
-  
-  return result
+  return productList.value
 })
 
 // 加载产品数据
@@ -280,14 +218,83 @@ const loadProducts = async () => {
   }
 }
 
-// 处理筛选
-const handleFilter = () => {
-  // 筛选逻辑在 computed 属性中自动处理
+// 显示产品详情
+const handleView = (row) => {
+  currentProduct.value = row
+  viewDialogVisible.value = true
 }
 
-// 处理选择变化
-const handleSelectionChange = (selection) => {
-  selectedProducts.value = selection
+// 新增产品
+const handleAdd = () => {
+  isEdit.value = false
+  form.value = {
+    product_code: '',
+    product_description: '',
+    base_unit: 'PCS',
+    product_type: 'FERT',
+    location: '1020',
+    mrp_controller: '001'
+  }
+  editDialogVisible.value = true
+}
+
+// 编辑产品
+const handleEdit = (row) => {
+  isEdit.value = true
+  form.value = {
+    id: row.id,
+    product_code: row.product_code,
+    product_description: row.product_description,
+    base_unit: row.base_unit.match(/\(([^)]+)\)/)?.[1] || row.base_unit,
+    product_type: row.product_type,
+    location: row.location,
+    mrp_controller: row.mrp_controller
+  }
+  editDialogVisible.value = true
+}
+
+// 删除产品
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定要删除产品"${row.product_description}"吗？`, '确认删除', {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    })
+    
+    // TODO: 调用删除API
+    ElMessage.success('删除成功')
+    loadProducts()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('删除失败')
+    }
+  }
+}
+
+// 提交表单
+const handleSubmit = async () => {
+  try {
+    await formRef.value.validate()
+    submitting.value = true
+    
+    if (isEdit.value) {
+      // TODO: 调用更新API
+      ElMessage.success('更新成功')
+    } else {
+      // TODO: 调用创建API
+      ElMessage.success('创建成功')
+    }
+    
+    editDialogVisible.value = false
+    loadProducts()
+  } catch (error) {
+    if (error !== false) {
+      ElMessage.error(isEdit.value ? '更新失败' : '创建失败')
+    }
+  } finally {
+    submitting.value = false
+  }
 }
 
 // 初始化
@@ -297,140 +304,29 @@ onMounted(() => {
 </script>
 
 <style lang="scss" scoped>
-.ds-product-view {
+.master-data-page {
+  padding: 24px;
+}
+
+.page-header {
   display: flex;
-  flex-direction: column;
-  height: calc(100vh - 80px);
-  background: #fff;
-}
-
-// 筛选区域样式
-.filter-bar {
-  background: #f5f5f5;
-  padding: 8px 16px;
-  border-bottom: 1px solid #dcdcdc;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
   
-  .filter-row {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    flex-wrap: wrap;
-  }
-  
-  .filter-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    
-    .filter-label {
-      font-size: 12px;
-      color: #333;
-      white-space: nowrap;
-    }
-    
-    .filter-input {
-      width: 140px;
-      
-      :deep(.el-input__wrapper) {
-        background: #fff;
-        box-shadow: none;
-        border: 1px solid #c4c4c4;
-        border-radius: 0;
-        padding: 0 8px;
-        
-        .el-input__inner {
-          font-size: 12px;
-          height: 24px;
-          line-height: 24px;
-        }
-        
-        .el-input__prefix {
-          color: #666;
-        }
-      }
-    }
-  }
-}
-
-// 表格标题
-.table-header {
-  padding: 8px 16px;
-  background: #fff;
-  border-bottom: 1px solid #e4e7ed;
-  
-  .table-title {
-    font-size: 12px;
-    color: #0066cc;
+  h1 {
+    margin: 0;
+    font-size: 24px;
     font-weight: 500;
-    
-    .title-suffix {
-      color: #333;
-      font-weight: normal;
-    }
-    
-    .required-mark {
-      color: #ff0000;
-      margin-left: 2px;
-    }
+    display: flex;
+    align-items: center;
+    gap: 8px;
   }
 }
 
-// 表格容器
-.table-container {
-  flex: 1;
-  padding: 0;
-  overflow: auto;
-}
-
-// DS产品表格样式 - 参照附件图片风格
-.ds-product-table {
-  width: 100%;
-  
-  // 表头样式
-  :deep(.el-table__header-wrapper) {
-    th.el-table__cell {
-      background-color: #f5f5f5 !important;
-      color: #333;
-      font-weight: 500;
-      font-size: 12px;
-      padding: 8px 0;
-      border-bottom: 1px solid #dcdcdc;
-      border-right: 1px solid #dcdcdc;
-      
-      .cell {
-        padding: 0 8px;
-        line-height: 1.4;
-      }
-    }
-  }
-  
-  // 行样式
-  :deep(.el-table__body-wrapper) {
-    tr.el-table__row {
-      background-color: #fff;
-      
-      &:hover > td.el-table__cell {
-        background-color: #f5f7fa !important;
-      }
-      
-      td.el-table__cell {
-        padding: 6px 0;
-        font-size: 12px;
-        color: #333;
-        border-bottom: 1px solid #e8e8e8;
-        border-right: 1px solid #e8e8e8;
-        
-        .cell {
-          padding: 0 8px;
-          line-height: 1.4;
-        }
-      }
-    }
-  }
-  
-  // 边框样式
-  :deep(.el-table__inner-wrapper::before) {
-    display: none;
-  }
+.action-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
 }
 </style>

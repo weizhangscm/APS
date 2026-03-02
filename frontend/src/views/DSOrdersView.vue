@@ -3,7 +3,7 @@
     <div class="page-header">
       <h1>
         <el-icon><Document /></el-icon>
-        DS订单数据
+        生产订单/计划订单
       </h1>
       <el-button type="primary" @click="handleAdd">
         <el-icon><Plus /></el-icon>
@@ -39,6 +39,12 @@
             <el-option label="已排程" value="scheduled" />
             <el-option label="进行中" value="in_progress" />
             <el-option label="已完成" value="completed" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="延期">
+          <el-select v-model="filterDelayed" placeholder="全部" clearable style="width: 120px">
+            <el-option label="是" :value="true" />
+            <el-option label="否" :value="false" />
           </el-select>
         </el-form-item>
         <el-form-item label="交货期">
@@ -101,6 +107,13 @@
               {{ formatDateTime(row.confirmed_start) }} - {{ formatDateTime(row.confirmed_end) }}
             </span>
             <span v-else class="text-muted">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="是否延期" min-width="80" align="center">
+          <template #default="{ row }">
+            <el-tag :type="isOrderDelayed(row) ? 'danger' : 'success'" size="small">
+              {{ isOrderDelayed(row) ? '是' : '否' }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="priority" label="优先级" min-width="70" align="center">
@@ -356,7 +369,24 @@ const filterStatus = ref('')
 const filterOrderType = ref('')
 const filterDueDateRange = ref(null)
 const filterOrderNumber = ref('')
-const filterResourceId = ref(null)  // 资源筛选
+const filterResourceId = ref(null)
+const filterDelayed = ref(null)
+
+// 判断订单是否延期
+const isOrderDelayed = (order) => {
+  if (!order.due_date) return false
+  
+  const now = dayjs()
+  const dueDate = dayjs(order.due_date)
+  
+  // 如果交货期已过，且订单未完成，则为延期
+  if (dueDate.isBefore(now, 'day')) {
+    const displayStatus = getDisplayOrderStatus(order)
+    return displayStatus !== 'completed'
+  }
+  
+  return false
+}
 
 // 订单列表（全部数据，DS订单数据是数据源，再经过筛选）
 const filteredOrders = computed(() => {
@@ -368,6 +398,24 @@ const filteredOrders = computed(() => {
     orders = orders.filter(order => 
       order.order_number && order.order_number.toUpperCase().includes(searchTerm)
     )
+  }
+  
+  // 如果设置了订单类型筛选
+  if (filterOrderType.value) {
+    orders = orders.filter(order => order.order_type === filterOrderType.value)
+  }
+  
+  // 如果设置了状态筛选（基于显示状态，而不是实际状态）
+  if (filterStatus.value) {
+    orders = orders.filter(order => {
+      const displayStatus = getDisplayOrderStatus(order)
+      return displayStatus === filterStatus.value
+    })
+  }
+  
+  // 如果设置了延期筛选
+  if (filterDelayed.value !== null && filterDelayed.value !== undefined && filterDelayed.value !== '') {
+    orders = orders.filter(order => isOrderDelayed(order) === filterDelayed.value)
   }
   
   // 如果设置了交货期筛选
@@ -462,7 +510,8 @@ const showConfirmedTime = computed(() => {
 
 const fetchData = () => {
   // 使用共享的dsFiltersStore来获取订单数据
-  dsFiltersStore.fetchDSOrders(filterStatus.value || null, filterOrderType.value || null)
+  // 注意：不再传递 filterStatus 和 filterOrderType 给后端，因为这些筛选在前端完成
+  dsFiltersStore.fetchDSOrders(null, null)
 }
 
 // Order form

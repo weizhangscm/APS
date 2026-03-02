@@ -42,6 +42,12 @@ const routes = [
     meta: { requiresAuth: true }
   },
   {
+    path: '/master-data/shifts',
+    name: 'Shifts',
+    component: () => import('@/views/ShiftsView.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
     path: '/master-data/resources',
     name: 'Resources',
     component: () => import('@/views/MasterData/Resources.vue'),

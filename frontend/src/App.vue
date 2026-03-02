@@ -31,17 +31,19 @@
                 <el-icon><Setting /></el-icon>
                 <span>主数据管理</span>
               </template>
-              <el-menu-item index="/master-data/work-centers">工作中心</el-menu-item>
-              <el-menu-item index="/master-data/setup-matrix">切换矩阵</el-menu-item>
               <el-menu-item index="/ds-resource">资源</el-menu-item>
+              <el-menu-item index="/master-data/shifts">班次</el-menu-item>
               <el-menu-item index="/ds-product">产品</el-menu-item>
               <el-menu-item index="/ds-routing">工艺路线</el-menu-item>
               <el-menu-item index="/ds-setup-matrix">切换矩阵</el-menu-item>
             </el-sub-menu>
-            <el-menu-item index="/orders">
-              <el-icon><Document /></el-icon>
-              <span>订单数据</span>
-            </el-menu-item>
+            <el-sub-menu index="business-data">
+              <template #title>
+                <el-icon><Briefcase /></el-icon>
+                <span>业务数据管理</span>
+              </template>
+              <el-menu-item index="/orders">生产/计划订单</el-menu-item>
+            </el-sub-menu>
           </el-menu>
           
           <!-- 用户信息区域 -->
@@ -107,7 +109,7 @@
 import { computed, ref, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, User, Lock, SwitchButton } from '@element-plus/icons-vue'
+import { ArrowDown, User, Lock, SwitchButton, Briefcase } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import { authApi } from '@/api'
 

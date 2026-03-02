@@ -2,7 +2,7 @@
   <div class="setup-matrix-view">
     <!-- 页面标题 -->
     <div class="page-header">
-      <h2>DS切换矩阵</h2>
+      <h2>切换矩阵</h2>
       <p class="subtitle">配置产品切换时间，参考 SAP PPDS Setup Matrix</p>
     </div>
 

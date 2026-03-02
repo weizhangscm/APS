@@ -16,7 +16,7 @@
     <div class="page-header">
       <h1>
         <el-icon><Share /></el-icon>
-        DS工艺路线
+        工艺路线
       </h1>
       <el-button type="primary" @click="handleAdd">
         <el-icon><Plus /></el-icon>
