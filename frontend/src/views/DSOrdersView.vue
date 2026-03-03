@@ -101,10 +101,10 @@
             {{ formatDate(row.due_date) }}
           </template>
         </el-table-column>
-        <el-table-column label="确认时间" min-width="180" v-if="showConfirmedTime">
+        <el-table-column label="预计完工时间" min-width="180">
           <template #default="{ row }">
-            <span v-if="row.order_type === 'production' && row.confirmed_start">
-              {{ formatDateTime(row.confirmed_start) }} - {{ formatDateTime(row.confirmed_end) }}
+            <span v-if="getEstimatedFinishTime(row)">
+              {{ formatDateTime(getEstimatedFinishTime(row)) }}
             </span>
             <span v-else class="text-muted">-</span>
           </template>
@@ -376,16 +376,23 @@ const filterDelayed = ref(null)
 const isOrderDelayed = (order) => {
   if (!order.due_date) return false
   
-  const now = dayjs()
-  const dueDate = dayjs(order.due_date)
+  // 获取预计完工时间（最后一道工序的结束时间）
+  const finishTime = getEstimatedFinishTime(order)
   
-  // 如果交货期已过，且订单未完成，则为延期
-  if (dueDate.isBefore(now, 'day')) {
-    const displayStatus = getDisplayOrderStatus(order)
-    return displayStatus !== 'completed'
+  // 如果没有预计完工时间，判断交货期是否已过且订单未完成
+  if (!finishTime) {
+    const now = dayjs()
+    const dueDate = dayjs(order.due_date)
+    
+    if (dueDate.isBefore(now, 'day')) {
+      const displayStatus = getDisplayOrderStatus(order)
+      return displayStatus !== 'completed'
+    }
+    return false
   }
   
-  return false
+  // 有预计完工时间，比较预计完工时间和交货期
+  return dayjs(finishTime).isAfter(dayjs(order.due_date))
 }
 
 // 订单列表（全部数据，DS订单数据是数据源，再经过筛选）
@@ -503,11 +510,6 @@ const dueDateShortcuts = [
   }
 ]
 
-// Show confirmed time column when filtering production orders or showing all
-const showConfirmedTime = computed(() => {
-  return !filterOrderType.value || filterOrderType.value === 'production'
-})
-
 const fetchData = () => {
   // 使用共享的dsFiltersStore来获取订单数据
   // 注意：不再传递 filterStatus 和 filterOrderType 给后端，因为这些筛选在前端完成
@@ -567,6 +569,22 @@ const formatDate = (date) => {
 
 const formatDateTime = (date) => {
   return date ? dayjs(date).format('MM-DD HH:mm') : ''
+}
+
+// 获取订单的预计完工时间（最后一道工序的结束时间）
+const getEstimatedFinishTime = (order) => {
+  if (!order || !order.operations || order.operations.length === 0) {
+    return null
+  }
+  
+  // 找到序号最大的工序（最后一道工序）
+  const lastOperation = order.operations.reduce((max, op) => {
+    return op.sequence > max.sequence ? op : max
+  }, order.operations[0])
+  
+  // 返回最后一道工序的结束时间
+  // 优先使用 scheduled_end，如果没有则使用 confirmed_end（生产订单的确认结束时间）
+  return lastOperation.scheduled_end || order.confirmed_end || null
 }
 
 const getPriorityType = (priority) => {
