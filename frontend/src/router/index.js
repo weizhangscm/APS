@@ -9,7 +9,7 @@ const routes = [
   },
   {
     path: '/',
-    redirect: '/gantt'
+    redirect: '/dashboard'
   },
   {
     path: '/gantt',
@@ -130,7 +130,7 @@ router.beforeEach((to, from, next) => {
     next('/login')
   } else if (to.path === '/login' && token) {
     // 已登录但访问登录页，跳转到首页
-    next('/gantt')
+    next('/dashboard')
   } else {
     next()
   }

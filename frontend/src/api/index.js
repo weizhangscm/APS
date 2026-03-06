@@ -73,6 +73,15 @@ export const masterDataApi = {
   createResource: (data) => api.post('/master-data/resources', data),
   updateResource: (id, data) => api.put(`/master-data/resources/${id}`, data),
   deleteResource: (id) => api.delete(`/master-data/resources/${id}`),
+
+  // Shifts 班次
+  getShifts: (resourceId = null) => {
+    const params = resourceId ? { resource_id: resourceId } : {}
+    return api.get('/master-data/shifts', { params })
+  },
+  createShift: (data) => api.post('/master-data/shifts', data),
+  updateShift: (id, data) => api.put(`/master-data/shifts/${id}`, data),
+  deleteShift: (id) => api.delete(`/master-data/shifts/${id}`),
   
   // Products
   getProducts: () => api.get('/master-data/products'),
@@ -129,7 +138,7 @@ export const schedulingApi = {
     const params = orderIds ? { order_ids: orderIds.join(',') } : {}
     return api.get('/scheduling/validate', { params })
   },
-  getKPI: () => api.get('/scheduling/kpi'),
+  getKPI: (params = {}) => api.get('/scheduling/kpi', { params }),
   rescheduleResource: (data) => api.post('/scheduling/reschedule-resource', data),
   autoPlan: (data) => api.post('/scheduling/auto-plan', data),
   // 取消计划 - 根据资源和/或产品清除排程

@@ -4,8 +4,8 @@
     <div class="header-row">
       <!-- 左侧表头 -->
       <div class="left-header">
-        <div class="header-cell col-name">资源名称</div>
-        <div class="header-cell col-capacity">产能</div>
+        <div class="header-cell col-name">{{ t('gantt.resourceName') }}</div>
+        <div class="header-cell col-capacity">{{ t('gantt.capacityHeader') }}</div>
       </div>
       <!-- 右侧时间轴表头 -->
       <div class="right-header" ref="timeAxisRef">
@@ -45,7 +45,7 @@
           </div>
         </div>
         <div v-if="chartData.length === 0" class="empty-row">
-          暂无数据
+          {{ t('gantt.noData') }}
         </div>
       </div>
       
@@ -96,6 +96,10 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+import { useI18nStore } from '@/stores/i18n'
+
+const i18nStore = useI18nStore()
+const t = (key) => i18nStore.t(key)
 
 const props = defineProps({
   data: {

@@ -1,92 +1,86 @@
 <template>
   <div class="setup-matrix-view">
-    <!-- 页面标题 -->
     <div class="page-header">
-      <h2>切换矩阵</h2>
-      <p class="subtitle">配置产品切换时间，参考 SAP PPDS Setup Matrix</p>
+      <h2>{{ t('dsSetupMatrix.title') }}</h2>
     </div>
 
-    <!-- 标签页切换 -->
     <el-tabs v-model="activeTab" type="card" class="m3-tabs">
-      <!-- 切换组管理 -->
-      <el-tab-pane label="切换组" name="groups">
+      <el-tab-pane :label="t('dsSetupMatrix.setupGroups')" name="groups">
         <div class="tab-toolbar">
           <el-button type="primary" @click="handleAddGroup">
             <el-icon><Plus /></el-icon>
-            新建切换组
+            {{ t('dsSetupMatrix.addSetupGroup') }}
           </el-button>
         </div>
 
         <el-table :data="setupGroups" v-loading="loading" class="m3-table" table-layout="auto">
-          <el-table-column prop="code" label="代码" min-width="100" />
-          <el-table-column prop="name" label="名称" min-width="150" />
-          <el-table-column prop="description" label="描述" min-width="200" show-overflow-tooltip />
-          <el-table-column label="包含产品" min-width="100" align="center">
+          <el-table-column prop="code" :label="t('masterData.code')" min-width="100" />
+          <el-table-column prop="name" :label="t('masterData.name')" min-width="150" />
+          <el-table-column prop="description" :label="t('dsSetupMatrix.description')" min-width="200" show-overflow-tooltip />
+          <el-table-column :label="t('dsSetupMatrix.productsIncluded')" min-width="100" align="center">
             <template #default="{ row }">
-              <span>{{ getProductCountForGroup(row.id) }} 个产品</span>
+              <span>{{ getProductCountForGroup(row.id) }} {{ t('dsSetupMatrix.productCount') }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="140" align="center">
+          <el-table-column :label="t('masterData.actions')" width="140" align="center">
             <template #default="{ row }">
               <div class="action-buttons">
-                <el-button type="primary" link @click="handleEditGroup(row)">编辑</el-button>
-                <el-button type="primary" link @click="handleDeleteGroup(row)">删除</el-button>
+                <el-button type="primary" link @click="handleEditGroup(row)">{{ t('dsSetupMatrix.editSetupGroup') }}</el-button>
+                <el-button type="primary" link @click="handleDeleteGroup(row)">{{ t('masterData.delete') }}</el-button>
               </div>
             </template>
           </el-table-column>
         </el-table>
       </el-tab-pane>
 
-      <!-- 产品分配 -->
-      <el-tab-pane label="产品分配" name="assignments">
+      <el-tab-pane :label="t('dsSetupMatrix.productAssignments')" name="assignments">
         <div class="tab-toolbar">
           <el-button type="primary" @click="handleAddAssignment">
             <el-icon><Plus /></el-icon>
-            分配产品
+            {{ t('dsSetupMatrix.assignProduct') }}
           </el-button>
-          <el-select v-model="filterWorkCenterId" placeholder="筛选工作中心" clearable style="width: 200px; margin-left: 16px;">
-            <el-option label="全局" :value="null" />
+          <el-select v-model="filterWorkCenterId" :placeholder="t('dsSetupMatrix.selectWorkCenter')" clearable style="width: 200px; margin-left: 16px;">
+            <el-option :label="t('dsSetupMatrix.global')" :value="null" />
             <el-option v-for="wc in workCenters" :key="wc.id" :label="wc.name" :value="wc.id" />
           </el-select>
         </div>
 
         <el-table :data="filteredAssignments" v-loading="loading" class="m3-table" table-layout="auto">
-          <el-table-column label="产品" min-width="200">
+          <el-table-column :label="t('dsView.product')" min-width="200">
             <template #default="{ row }">
               {{ row.product?.code }} - {{ row.product?.name }}
             </template>
           </el-table-column>
-          <el-table-column label="切换组" min-width="150">
+          <el-table-column :label="t('dsSetupMatrix.setupGroups')" min-width="150">
             <template #default="{ row }">
               <el-tag>{{ row.setup_group?.name || '-' }}</el-tag>
             </template>
           </el-table-column>
-          <el-table-column label="适用工作中心" min-width="150">
+          <el-table-column :label="t('dsSetupMatrix.applicableWorkCenter')" min-width="150">
             <template #default="{ row }">
-              {{ row.work_center?.name || '全局' }}
+              {{ row.work_center?.name || t('dsSetupMatrix.global') }}
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="100" align="center">
+          <el-table-column :label="t('masterData.actions')" width="100" align="center">
             <template #default="{ row }">
-              <el-button type="primary" link @click="handleDeleteAssignment(row)">删除</el-button>
+              <el-button type="primary" link @click="handleDeleteAssignment(row)">{{ t('masterData.delete') }}</el-button>
             </template>
           </el-table-column>
         </el-table>
       </el-tab-pane>
 
-      <!-- 切换矩阵 -->
-      <el-tab-pane label="切换矩阵" name="matrix">
+      <el-tab-pane :label="t('dsSetupMatrix.setupMatrix')" name="matrix">
         <div class="tab-toolbar">
-          <el-select v-model="matrixScope" placeholder="选择范围" style="width: 150px;">
-            <el-option label="全局" value="global" />
-            <el-option label="工作中心" value="work_center" />
-            <el-option label="资源" value="resource" />
+          <el-select v-model="matrixScope" :placeholder="t('dsSetupMatrix.selectScope')" style="width: 150px;">
+            <el-option :label="t('dsSetupMatrix.global')" value="global" />
+            <el-option :label="t('dsSetupMatrix.workCenter')" value="work_center" />
+            <el-option :label="t('dsSetupMatrix.resource')" value="resource" />
           </el-select>
           
           <el-select 
             v-if="matrixScope === 'work_center'" 
             v-model="selectedWorkCenterId" 
-            placeholder="选择工作中心" 
+            :placeholder="t('dsSetupMatrix.selectWorkCenter')"
             style="width: 200px; margin-left: 12px;"
             @change="loadMatrixGrid"
           >
@@ -96,7 +90,7 @@
           <el-select 
             v-if="matrixScope === 'resource'" 
             v-model="selectedResourceId" 
-            placeholder="选择资源" 
+            :placeholder="t('dsSetupMatrix.selectResource')" 
             style="width: 200px; margin-left: 12px;"
             @change="loadMatrixGrid"
           >
@@ -105,21 +99,21 @@
 
           <el-button type="primary" style="margin-left: 16px;" @click="saveMatrix" :loading="saving">
             <el-icon><Check /></el-icon>
-            保存矩阵
+            {{ t('dsSetupMatrix.saveMatrix') }}
           </el-button>
         </div>
 
         <div class="matrix-grid-container" v-loading="loading">
           <div class="matrix-description">
-            <p><strong>说明：</strong>行表示"从"切换组，列表示"到"切换组。单元格值为切换时间（小时）。</p>
-            <p>相同切换组之间切换时间为0（对角线）。空单元格表示使用上级默认值或无需切换时间。</p>
+            <p><strong>{{ t('dsSetupMatrix.description') }}：</strong>{{ t('dsSetupMatrix.matrixExplanation') }}</p>
+            <p>{{ t('dsSetupMatrix.diagonalExplanation') }}</p>
           </div>
 
           <div class="matrix-table-wrapper" v-if="matrixGrid.setup_groups?.length > 0">
             <table class="matrix-table">
               <thead>
                 <tr>
-                  <th class="corner-cell">从 \ 到</th>
+                  <th class="corner-cell">{{ t('dsSetupMatrix.fromTo') }}</th>
                   <th v-for="group in matrixGrid.setup_groups" :key="group.id" class="header-cell">
                     {{ group.name }}
                   </th>
@@ -146,7 +140,7 @@
             </table>
           </div>
 
-          <el-empty v-else description="暂无切换组，请先创建切换组" />
+          <el-empty v-else :description="t('dsSetupMatrix.noSetupGroups')" />
         </div>
       </el-tab-pane>
     </el-tabs>
@@ -154,49 +148,48 @@
     <!-- 切换组对话框 -->
     <el-dialog 
       v-model="groupDialogVisible" 
-      :title="editingGroup ? '编辑切换组' : '新建切换组'"
+      :title="editingGroup ? t('dsSetupMatrix.editSetupGroup') : t('dsSetupMatrix.addSetupGroup')"
       width="500px"
     >
       <el-form :model="groupForm" label-width="80px">
-        <el-form-item label="代码" required>
-          <el-input v-model="groupForm.code" placeholder="例如: GRP-A" />
+        <el-form-item :label="t('masterData.code')" required>
+          <el-input v-model="groupForm.code" :placeholder="t('dsSetupMatrix.enterCode')" />
         </el-form-item>
-        <el-form-item label="名称" required>
-          <el-input v-model="groupForm.name" placeholder="例如: 金属件组" />
+        <el-form-item :label="t('masterData.name')" required>
+          <el-input v-model="groupForm.name" :placeholder="t('dsSetupMatrix.enterName')" />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="t('dsSetupMatrix.description')">
           <el-input v-model="groupForm.description" type="textarea" :rows="3" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="groupDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveGroup" :loading="saving">保存</el-button>
+        <el-button @click="groupDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="saveGroup" :loading="saving">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
 
-    <!-- 产品分配对话框 -->
-    <el-dialog v-model="assignmentDialogVisible" title="分配产品到切换组" width="500px">
+    <el-dialog v-model="assignmentDialogVisible" :title="t('dsSetupMatrix.assignProductToGroup')" width="500px">
       <el-form :model="assignmentForm" label-width="100px">
-        <el-form-item label="产品" required>
-          <el-select v-model="assignmentForm.product_id" filterable placeholder="选择产品" style="width: 100%;">
+        <el-form-item :label="t('dsView.product')" required>
+          <el-select v-model="assignmentForm.product_id" filterable :placeholder="t('dsSetupMatrix.selectProduct')" style="width: 100%;">
             <el-option v-for="p in products" :key="p.id" :label="`${p.code} - ${p.name}`" :value="p.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="切换组" required>
-          <el-select v-model="assignmentForm.setup_group_id" placeholder="选择切换组" style="width: 100%;">
+        <el-form-item :label="t('dsSetupMatrix.setupGroups')" required>
+          <el-select v-model="assignmentForm.setup_group_id" :placeholder="t('dsSetupMatrix.selectSetupGroup')" style="width: 100%;">
             <el-option v-for="g in setupGroups" :key="g.id" :label="g.name" :value="g.id" />
           </el-select>
         </el-form-item>
-        <el-form-item label="适用工作中心">
-          <el-select v-model="assignmentForm.work_center_id" clearable placeholder="全局（不限）" style="width: 100%;">
+        <el-form-item :label="t('dsSetupMatrix.applicableWorkCenter')">
+          <el-select v-model="assignmentForm.work_center_id" clearable :placeholder="t('dsSetupMatrix.globalApplicable')" style="width: 100%;">
             <el-option v-for="wc in workCenters" :key="wc.id" :label="wc.name" :value="wc.id" />
           </el-select>
-          <div class="form-tip">留空表示全局适用</div>
+          <div class="form-tip">{{ t('dsSetupMatrix.leaveEmptyForGlobal') }}</div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="assignmentDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="saveAssignment" :loading="saving">保存</el-button>
+        <el-button @click="assignmentDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="saveAssignment" :loading="saving">{{ t('common.save') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -209,11 +202,11 @@ import { Plus, Check } from '@element-plus/icons-vue'
 import { setupMatrixApi } from '@/api'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useDSFiltersStore } from '@/stores/dsFilters'
+import { useI18nStore } from '@/stores/i18n'
 
-// 主数据store
+const i18nStore = useI18nStore()
+const t = (key) => i18nStore.t(key)
 const masterStore = useMasterDataStore()
-
-// 共享筛选store
 const dsFiltersStore = useDSFiltersStore()
 
 // 状态

@@ -1,5 +1,5 @@
 <template>
-  <el-config-provider :locale="zhCn">
+  <el-config-provider :locale="elementLocale">
     <!-- 登录页面 -->
     <router-view v-if="isLoginPage" />
     
@@ -11,7 +11,7 @@
             <div class="logo-icon we-logo">
               <span>We</span>
             </div>
-            <span>AI Native APS</span>
+            <span>{{ t('app.title') }}</span>
           </div>
           <el-menu
             :default-active="activeMenu"
@@ -20,29 +20,29 @@
           >
             <el-menu-item index="/ds">
               <el-icon><Operation /></el-icon>
-              <span>详细计划表</span>
+              <span>{{ t('menu.detailedSchedule') }}</span>
             </el-menu-item>
             <el-menu-item index="/dashboard">
               <el-icon><TrendCharts /></el-icon>
-              <span>KPI仪表板</span>
+              <span>{{ t('menu.kpiDashboard') }}</span>
             </el-menu-item>
             <el-sub-menu index="master-data">
               <template #title>
                 <el-icon><Setting /></el-icon>
-                <span>主数据管理</span>
+                <span>{{ t('menu.masterDataManagement') }}</span>
               </template>
-              <el-menu-item index="/ds-resource">资源</el-menu-item>
-              <el-menu-item index="/master-data/shifts">班次</el-menu-item>
-              <el-menu-item index="/ds-product">产品</el-menu-item>
-              <el-menu-item index="/ds-routing">工艺路线</el-menu-item>
-              <el-menu-item index="/ds-setup-matrix">切换矩阵</el-menu-item>
+              <el-menu-item index="/ds-resource">{{ t('menu.resources') }}</el-menu-item>
+              <el-menu-item index="/master-data/shifts">{{ t('menu.shifts') }}</el-menu-item>
+              <el-menu-item index="/ds-product">{{ t('menu.products') }}</el-menu-item>
+              <el-menu-item index="/ds-routing">{{ t('menu.routing') }}</el-menu-item>
+              <el-menu-item index="/ds-setup-matrix">{{ t('menu.setupMatrix') }}</el-menu-item>
             </el-sub-menu>
             <el-sub-menu index="business-data">
               <template #title>
                 <el-icon><Briefcase /></el-icon>
-                <span>业务数据管理</span>
+                <span>{{ t('menu.businessDataManagement') }}</span>
               </template>
-              <el-menu-item index="/orders">生产/计划订单</el-menu-item>
+              <el-menu-item index="/orders">{{ t('menu.productionOrders') }}</el-menu-item>
             </el-sub-menu>
           </el-menu>
           
@@ -63,15 +63,15 @@
                 <el-dropdown-menu>
                   <el-dropdown-item command="profile">
                     <el-icon><User /></el-icon>
-                    个人信息
+                    {{ t('user.profile') }}
                   </el-dropdown-item>
                   <el-dropdown-item command="password">
                     <el-icon><Lock /></el-icon>
-                    修改密码
+                    {{ t('user.changePassword') }}
                   </el-dropdown-item>
                   <el-dropdown-item divided command="logout">
                     <el-icon><SwitchButton /></el-icon>
-                    退出登录
+                    {{ t('user.logout') }}
                   </el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -79,27 +79,31 @@
           </div>
         </el-aside>
         <el-main class="main-content">
+          <div class="main-content-top-bar">
+            <span></span>
+            <LanguageSwitcher />
+          </div>
           <router-view />
         </el-main>
       </el-container>
     </div>
     
     <!-- 修改密码对话框 -->
-    <el-dialog v-model="passwordDialogVisible" title="修改密码" width="400px">
-      <el-form :model="passwordForm" :rules="passwordRules" ref="passwordFormRef" label-width="80px">
-        <el-form-item label="原密码" prop="oldPassword">
+    <el-dialog v-model="passwordDialogVisible" :title="t('password.title')" width="400px">
+      <el-form :model="passwordForm" :rules="passwordRulesRef" ref="passwordFormRef" label-width="80px">
+        <el-form-item :label="t('password.oldPassword')" prop="oldPassword">
           <el-input v-model="passwordForm.oldPassword" type="password" show-password />
         </el-form-item>
-        <el-form-item label="新密码" prop="newPassword">
+        <el-form-item :label="t('password.newPassword')" prop="newPassword">
           <el-input v-model="passwordForm.newPassword" type="password" show-password />
         </el-form-item>
-        <el-form-item label="确认密码" prop="confirmPassword">
+        <el-form-item :label="t('password.confirmPassword')" prop="confirmPassword">
           <el-input v-model="passwordForm.confirmPassword" type="password" show-password />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="passwordDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleChangePassword" :loading="changingPassword">确定</el-button>
+        <el-button @click="passwordDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleChangePassword" :loading="changingPassword">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
   </el-config-provider>
@@ -111,13 +115,20 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, User, Lock, SwitchButton, Briefcase } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
+import en from 'element-plus/dist/locale/en.mjs'
 import { authApi } from '@/api'
+import { useI18nStore } from '@/stores/i18n'
+import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
 
 const route = useRoute()
 const router = useRouter()
+const i18nStore = useI18nStore()
+const t = (key) => i18nStore.t(key)
 
 const activeMenu = computed(() => route.path)
 const isLoginPage = computed(() => route.path === '/login')
+
+const elementLocale = computed(() => i18nStore.currentLocale === 'zh-CN' ? zhCn : en)
 
 // 用户信息
 const currentUser = computed(() => {
@@ -128,9 +139,9 @@ const currentUser = computed(() => {
   }
 })
 
-const userName = computed(() => currentUser.value.full_name || currentUser.value.username || '用户')
+const userName = computed(() => currentUser.value.full_name || currentUser.value.username || (i18nStore.currentLocale === 'zh-CN' ? '用户' : 'User'))
 const userInitial = computed(() => (userName.value || 'U')[0].toUpperCase())
-const userRole = computed(() => currentUser.value.is_admin ? '管理员' : '普通用户')
+const userRole = computed(() => currentUser.value.is_admin ? i18nStore.t('user.admin') : i18nStore.t('user.regularUser'))
 
 // 修改密码
 const passwordDialogVisible = ref(false)
@@ -142,18 +153,18 @@ const passwordForm = reactive({
   confirmPassword: ''
 })
 
-const passwordRules = {
-  oldPassword: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
+const passwordRulesRef = computed(() => ({
+  oldPassword: [{ required: true, message: i18nStore.t('password.enterOldPassword'), trigger: 'blur' }],
   newPassword: [
-    { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, message: '密码长度至少6位', trigger: 'blur' }
+    { required: true, message: i18nStore.t('password.enterNewPassword'), trigger: 'blur' },
+    { min: 6, message: i18nStore.t('password.passwordTooShort'), trigger: 'blur' }
   ],
   confirmPassword: [
-    { required: true, message: '请确认新密码', trigger: 'blur' },
+    { required: true, message: i18nStore.t('password.enterConfirmPassword'), trigger: 'blur' },
     {
       validator: (rule, value, callback) => {
         if (value !== passwordForm.newPassword) {
-          callback(new Error('两次输入的密码不一致'))
+          callback(new Error(i18nStore.t('password.passwordMismatch')))
         } else {
           callback()
         }
@@ -161,12 +172,12 @@ const passwordRules = {
       trigger: 'blur'
     }
   ]
-}
+}))
 
 const handleUserCommand = (command) => {
   switch (command) {
     case 'profile':
-      ElMessage.info('个人信息功能开发中')
+      ElMessage.info(i18nStore.t('user.profileComingSoon'))
       break
     case 'password':
       passwordForm.oldPassword = ''
@@ -189,10 +200,10 @@ const handleChangePassword = async () => {
     changingPassword.value = true
     try {
       await authApi.changePassword(passwordForm.oldPassword, passwordForm.newPassword)
-      ElMessage.success('密码修改成功')
+      ElMessage.success(i18nStore.t('password.changeSuccess'))
       passwordDialogVisible.value = false
     } catch (error) {
-      ElMessage.error(error.response?.data?.detail || '密码修改失败')
+      ElMessage.error(error.response?.data?.detail || i18nStore.t('password.changeFailed'))
     } finally {
       changingPassword.value = false
     }
@@ -201,7 +212,7 @@ const handleChangePassword = async () => {
 
 const handleLogout = async () => {
   try {
-    await ElMessageBox.confirm('确定要退出登录吗？', '提示', {
+    await ElMessageBox.confirm(i18nStore.t('user.confirmLogout'), i18nStore.t('common.warning'), {
       type: 'warning'
     })
     
@@ -214,7 +225,7 @@ const handleLogout = async () => {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
     
-    ElMessage.success('已退出登录')
+    ElMessage.success(i18nStore.t('user.logoutSuccess'))
     router.push('/login')
   } catch {
     // 用户取消
@@ -376,6 +387,15 @@ $m3-shape-full: 9999px;
   background: $m3-surface-dim;
   padding: 24px 32px;
   overflow-y: auto;
+}
+
+.main-content-top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin: -24px -32px 0 0;
+  padding: 8px 0 8px 16px;
+  min-height: 40px;
 }
 
 .sidebar {

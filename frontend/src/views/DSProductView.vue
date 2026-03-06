@@ -3,77 +3,75 @@
     <div class="page-header">
       <h1>
         <el-icon><Box /></el-icon>
-        产品
+        {{ t('dsProduct.title') }}
       </h1>
       <el-button type="primary" @click="handleAdd">
         <el-icon><Plus /></el-icon>
-        新增产品
+        {{ t('dsProduct.addProduct') }}
       </el-button>
     </div>
     
     <el-card>
       <el-table :data="filteredProductList" v-loading="loading" stripe table-layout="auto">
-        <el-table-column prop="product_code" label="产品标识" min-width="100" />
-        <el-table-column prop="product_description" label="产品描述" min-width="200" show-overflow-tooltip />
-        <el-table-column prop="base_unit" label="基本计量单位" min-width="100" align="center" />
-        <el-table-column prop="product_type" label="产品类型" min-width="80" align="center" />
-        <el-table-column prop="location" label="位置" min-width="60" align="center" />
-        <el-table-column prop="location_name" label="位置名称" min-width="120" />
-        <el-table-column prop="mrp_controller" label="MRP控制员" min-width="90" align="center" />
-        <el-table-column prop="mrp_controller_name" label="MRP控制员姓名" min-width="110" />
-        <el-table-column label="操作" width="220" align="center">
+        <el-table-column prop="product_code" :label="t('dsProduct.productCode')" min-width="100" />
+        <el-table-column prop="product_description" :label="t('dsProduct.productDescription')" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="base_unit" :label="t('dsProduct.baseUnit')" min-width="100" align="center" />
+        <el-table-column prop="product_type" :label="t('dsProduct.productType')" min-width="80" align="center" />
+        <el-table-column prop="location" :label="t('dsProduct.location')" min-width="60" align="center" />
+        <el-table-column prop="location_name" :label="t('dsProduct.locationName')" min-width="120" />
+        <el-table-column prop="mrp_controller" :label="t('dsProduct.mrpController')" min-width="90" align="center" />
+        <el-table-column prop="mrp_controller_name" :label="t('dsProduct.mrpControllerName')" min-width="110" />
+        <el-table-column :label="t('masterData.actions')" width="220" align="center">
           <template #default="{ row }">
             <div class="action-buttons">
-              <el-button type="primary" link @click="handleView(row)">详情</el-button>
-              <el-button type="primary" link @click="handleEdit(row)">编辑</el-button>
-              <el-button type="primary" link @click="handleDelete(row)">删除</el-button>
+              <el-button type="primary" link @click="handleView(row)">{{ t('dsProduct.viewDetails') }}</el-button>
+              <el-button type="primary" link @click="handleEdit(row)">{{ t('masterData.edit') }}</el-button>
+              <el-button type="primary" link @click="handleDelete(row)">{{ t('masterData.delete') }}</el-button>
             </div>
           </template>
         </el-table-column>
       </el-table>
     </el-card>
     
-    <!-- 产品详情对话框 -->
     <el-dialog 
       v-model="viewDialogVisible" 
-      :title="`产品详情 - ${currentProduct?.product_description || ''}`"
+      :title="`${t('dsProduct.productDetails')} - ${currentProduct?.product_description || ''}`"
       width="700px"
     >
       <el-descriptions :column="2" border v-if="currentProduct">
-        <el-descriptions-item label="产品标识">{{ currentProduct.product_code }}</el-descriptions-item>
-        <el-descriptions-item label="产品描述">{{ currentProduct.product_description }}</el-descriptions-item>
-        <el-descriptions-item label="基本计量单位">{{ currentProduct.base_unit }}</el-descriptions-item>
-        <el-descriptions-item label="产品类型">{{ currentProduct.product_type }}</el-descriptions-item>
-        <el-descriptions-item label="位置">{{ currentProduct.location }}</el-descriptions-item>
-        <el-descriptions-item label="位置名称">{{ currentProduct.location_name }}</el-descriptions-item>
-        <el-descriptions-item label="MRP控制员">{{ currentProduct.mrp_controller }}</el-descriptions-item>
-        <el-descriptions-item label="MRP控制员姓名">{{ currentProduct.mrp_controller_name || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="已加删除标记">
+        <el-descriptions-item :label="t('dsProduct.productCode')">{{ currentProduct.product_code }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsProduct.productDescription')">{{ currentProduct.product_description }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsProduct.baseUnit')">{{ currentProduct.base_unit }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsProduct.productType')">{{ currentProduct.product_type }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsProduct.location')">{{ currentProduct.location }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsProduct.locationName')">{{ currentProduct.location_name }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsProduct.mrpController')">{{ currentProduct.mrp_controller }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsProduct.mrpControllerName')">{{ currentProduct.mrp_controller_name || '-' }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsProduct.deletionFlag')">
           <el-tag :type="currentProduct.deletion_flag ? 'danger' : 'success'" size="small">
-            {{ currentProduct.deletion_flag ? '是' : '否' }}
+            {{ currentProduct.deletion_flag ? t('common.yes') : t('common.no') }}
           </el-tag>
         </el-descriptions-item>
       </el-descriptions>
       <template #footer>
-        <el-button @click="viewDialogVisible = false">关闭</el-button>
+        <el-button @click="viewDialogVisible = false">{{ t('dsResource.close') }}</el-button>
       </template>
     </el-dialog>
     
-    <!-- 编辑/新增产品对话框 -->
     <el-dialog 
       v-model="editDialogVisible" 
-      :title="isEdit ? '编辑产品' : '新增产品'"
+      :title="isEdit ? t('dsProduct.editProduct') : t('dsProduct.addProduct')"
       width="600px"
     >
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
-        <el-form-item label="产品标识" prop="product_code">
-          <el-input v-model="form.product_code" :disabled="isEdit" placeholder="请输入产品标识" />
+      <el-form ref="formRef" :model="form" :rules="rulesRef" label-width="120px">
+        <el-form-item :label="t('dsProduct.productCode')" prop="product_code">
+          <el-input v-model="form.product_code" :disabled="isEdit" :placeholder="t('dsProduct.enterProductCode')" />
         </el-form-item>
-        <el-form-item label="产品描述" prop="product_description">
-          <el-input v-model="form.product_description" placeholder="请输入产品描述" />
+        <el-form-item :label="t('dsProduct.productDescription')" prop="product_description">
+          <el-input v-model="form.product_description" :placeholder="t('dsProduct.enterProductDescription')" />
         </el-form-item>
-        <el-form-item label="基本计量单位" prop="base_unit">
-          <el-select v-model="form.base_unit" placeholder="请选择单位" style="width: 100%">
+        <el-form-item :label="t('dsProduct.baseUnit')" prop="base_unit">
+          <el-select v-model="form.base_unit" :placeholder="t('dsProduct.selectUnit')" style="width: 100%">
             <el-option label="个 (PCS)" value="PCS" />
             <el-option label="千克 (KG)" value="KG" />
             <el-option label="个 (EA)" value="EA" />
@@ -82,27 +80,27 @@
             <el-option label="套 (SET)" value="SET" />
           </el-select>
         </el-form-item>
-        <el-form-item label="产品类型" prop="product_type">
-          <el-select v-model="form.product_type" placeholder="请选择产品类型" style="width: 100%">
+        <el-form-item :label="t('dsProduct.productType')" prop="product_type">
+          <el-select v-model="form.product_type" :placeholder="t('dsProduct.selectProductType')" style="width: 100%">
             <el-option label="HALB" value="HALB" />
             <el-option label="FERT" value="FERT" />
           </el-select>
         </el-form-item>
-        <el-form-item label="位置" prop="location">
-          <el-select v-model="form.location" placeholder="请选择位置" style="width: 100%">
+        <el-form-item :label="t('dsProduct.location')" prop="location">
+          <el-select v-model="form.location" :placeholder="t('dsProduct.selectLocation')" style="width: 100%">
             <el-option label="1020 - Frankfurt Plant" value="1020" />
             <el-option label="1110 - Beijing Plant" value="1110" />
             <el-option label="1120 - Shanghai Plant" value="1120" />
             <el-option label="1121 - Shanghai Plant2" value="1121" />
           </el-select>
         </el-form-item>
-        <el-form-item label="MRP控制员">
-          <el-input v-model="form.mrp_controller" placeholder="请输入MRP控制员代码" />
+        <el-form-item :label="t('dsProduct.mrpController')">
+          <el-input v-model="form.mrp_controller" :placeholder="t('dsProduct.enterMRPControllerCode')" />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="editDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleSubmit" :loading="submitting">确定</el-button>
+        <el-button @click="editDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleSubmit" :loading="submitting">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
   </div>
@@ -114,8 +112,10 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Box, Plus } from '@element-plus/icons-vue'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useDSFiltersStore } from '@/stores/dsFilters'
+import { useI18nStore } from '@/stores/i18n'
 
-// 主数据store
+const i18nStore = useI18nStore()
+const t = (key) => i18nStore.t(key)
 const store = useMasterDataStore()
 
 // 共享筛选store
@@ -145,14 +145,13 @@ const form = ref({
   mrp_controller: '001'
 })
 
-// 表单验证规则
-const rules = {
-  product_code: [{ required: true, message: '请输入产品标识', trigger: 'blur' }],
-  product_description: [{ required: true, message: '请输入产品描述', trigger: 'blur' }],
-  base_unit: [{ required: true, message: '请选择基本计量单位', trigger: 'change' }],
-  product_type: [{ required: true, message: '请选择产品类型', trigger: 'change' }],
-  location: [{ required: true, message: '请选择位置', trigger: 'change' }]
-}
+const rulesRef = computed(() => ({
+  product_code: [{ required: true, message: i18nStore.t('dsProduct.enterProductCode'), trigger: 'blur' }],
+  product_description: [{ required: true, message: i18nStore.t('dsProduct.enterProductDescription'), trigger: 'blur' }],
+  base_unit: [{ required: true, message: i18nStore.t('dsProduct.selectUnit'), trigger: 'change' }],
+  product_type: [{ required: true, message: i18nStore.t('dsProduct.selectProductType'), trigger: 'change' }],
+  location: [{ required: true, message: i18nStore.t('dsProduct.selectLocation'), trigger: 'change' }]
+}))
 
 // 位置映射数据
 const locationMap = {
@@ -212,7 +211,7 @@ const loadProducts = async () => {
     dsFiltersStore.setDSProducts(mappedData)
   } catch (error) {
     console.error('Failed to load products:', error)
-    ElMessage.error('加载产品数据失败')
+    ElMessage.error(t('dsProduct.loadProductsFailed'))
   } finally {
     loading.value = false
   }
@@ -256,18 +255,16 @@ const handleEdit = (row) => {
 // 删除产品
 const handleDelete = async (row) => {
   try {
-    await ElMessageBox.confirm(`确定要删除产品"${row.product_description}"吗？`, '确认删除', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
-    
-    // TODO: 调用删除API
-    ElMessage.success('删除成功')
+    await ElMessageBox.confirm(
+      t('dsProduct.confirmDeleteProduct').replace('{name}', row.product_description),
+      t('orders.confirmDeleteTitle'),
+      { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
+    )
+    ElMessage.success(t('messages.deleteSuccess'))
     loadProducts()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('删除失败')
+      ElMessage.error(t('messages.deleteFailed'))
     }
   }
 }
@@ -279,18 +276,16 @@ const handleSubmit = async () => {
     submitting.value = true
     
     if (isEdit.value) {
-      // TODO: 调用更新API
-      ElMessage.success('更新成功')
+      ElMessage.success(t('messages.updateSuccess'))
     } else {
-      // TODO: 调用创建API
-      ElMessage.success('创建成功')
+      ElMessage.success(t('messages.createSuccess'))
     }
     
     editDialogVisible.value = false
     loadProducts()
   } catch (error) {
     if (error !== false) {
-      ElMessage.error(isEdit.value ? '更新失败' : '创建失败')
+      ElMessage.error(isEdit.value ? t('messages.updateFailed') : t('messages.createFailed'))
     }
   } finally {
     submitting.value = false

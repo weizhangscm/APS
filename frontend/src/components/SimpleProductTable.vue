@@ -7,9 +7,9 @@
         <table>
           <thead>
             <tr>
-              <th class="col-name">产品</th>
-              <th class="col-start">开始时间</th>
-              <th class="col-duration">时长(H)</th>
+              <th class="col-name">{{ t('dsView.product') }}</th>
+              <th class="col-start">{{ t('gantt.startTime') }}</th>
+              <th class="col-duration">{{ t('gantt.durationH') }}</th>
             </tr>
           </thead>
         </table>
@@ -38,7 +38,7 @@
               </tr>
             </template>
             <tr v-if="flattenedData.length === 0">
-              <td colspan="3" class="empty-row">暂无数据</td>
+              <td colspan="3" class="empty-row">{{ t('gantt.noData') }}</td>
             </tr>
           </tbody>
         </table>
@@ -87,7 +87,7 @@
                 :key="`${item.id}-range-${rangeIndex}`"
                 class="task-bar project-bar"
                 :style="getTaskStyleFromRange(range)"
-                :title="`${item.text}\n开始: ${formatDate(range.start_date)}\n结束: ${formatDate(range.end_date)}`"
+                :title="`${item.text}\n开始: ${formatDateTime(range.start_date)}\n结束: ${formatDateTime(range.end_date)}`"
               >
               </div>
             </template>
@@ -98,7 +98,7 @@
               class="task-bar"
               :class="getTaskClass(item)"
               :style="getTaskStyle(item)"
-              :title="`${item.text}\n开始: ${formatDate(item.start_date)}\n结束: ${formatDate(item.end_date)}`"
+              :title="`${item.text}\n开始: ${formatDateTime(item.start_date)}\n结束: ${formatDateTime(item.end_date)}`"
             >
             </div>
           </div>
@@ -111,6 +111,10 @@
 <script setup>
 import { ref, computed, reactive } from 'vue'
 import { Box, Document, Plus, Minus } from '@element-plus/icons-vue'
+import { useI18nStore } from '@/stores/i18n'
+
+const i18nStore = useI18nStore()
+const t = (key) => i18nStore.t(key)
 
 const props = defineProps({
   tasks: {
@@ -541,6 +545,18 @@ const formatDate = (dateStr) => {
   if (!dateStr) return '-'
   const date = new Date(dateStr)
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+// 格式化日期+时间（用于甘特条悬停 tooltip）
+const formatDateTime = (dateStr) => {
+  if (!dateStr) return '-'
+  const date = new Date(dateStr)
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  const h = String(date.getHours()).padStart(2, '0')
+  const min = String(date.getMinutes()).padStart(2, '0')
+  return `${y}-${m}-${d} ${h}:${min}`
 }
 </script>
 

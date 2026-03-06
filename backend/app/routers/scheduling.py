@@ -118,10 +118,14 @@ def validate_scheduling(
 
 
 @router.get("/kpi", response_model=schemas.KPIDashboard)
-def get_kpi_dashboard(db: Session = Depends(get_db)):
-    """获取KPI仪表板数据"""
+def get_kpi_dashboard(
+    db: Session = Depends(get_db),
+    due_date_start: Optional[str] = Query(None, description="交期区间开始日期 YYYY-MM-DD"),
+    due_date_end: Optional[str] = Query(None, description="交期区间结束日期 YYYY-MM-DD"),
+):
+    """获取KPI仪表板数据，可选按交期区间过滤生产订单和计划订单"""
     engine = SchedulingEngine(db)
-    return engine.get_kpi_data()
+    return engine.get_kpi_data(due_date_start=due_date_start, due_date_end=due_date_end)
 
 
 @router.post("/reschedule-resource")

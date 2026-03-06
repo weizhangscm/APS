@@ -249,6 +249,17 @@ const initGantt = () => {
     return ''
   }
   
+  // 甘特图 tooltip 中开始/结束格式：日期 + 时间
+  const tooltipDateTimeFormat = (d) => {
+    const date = d instanceof Date ? d : new Date(d)
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const day = String(date.getDate()).padStart(2, '0')
+    const h = String(date.getHours()).padStart(2, '0')
+    const min = String(date.getMinutes()).padStart(2, '0')
+    return `${y}-${m}-${day} ${h}:${min}`
+  }
+
   // Tooltip with more details
   gantt.templates.tooltip_text = (start, end, task) => {
     const duration = ((end - start) / (1000 * 60 * 60)).toFixed(1)
@@ -268,8 +279,8 @@ const initGantt = () => {
     let html = `<div class="gantt-tooltip-content">
       <div class="tooltip-title">${task.text}</div>
       <div class="tooltip-row"><span>类型:</span> <span class="${tagClass}">${orderTypeLabel}</span></div>
-      <div class="tooltip-row"><span>开始:</span> ${gantt.templates.tooltip_date_format(start)}</div>
-      <div class="tooltip-row"><span>结束:</span> ${gantt.templates.tooltip_date_format(end)}</div>
+      <div class="tooltip-row"><span>开始:</span> ${tooltipDateTimeFormat(start)}</div>
+      <div class="tooltip-row"><span>结束:</span> ${tooltipDateTimeFormat(end)}</div>
       <div class="tooltip-row"><span>时长:</span> ${duration} 小时</div>`
     
     if (isChangeover) {

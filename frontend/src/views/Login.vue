@@ -12,22 +12,22 @@
           <div class="logo-icon we-logo">
             <span class="we-text">We</span>
           </div>
-          <h1>AI Native APS</h1>
+          <h1>{{ t('login.title') }}</h1>
         </div>
-        <p class="subtitle">高级计划排程系统</p>
+        <p class="subtitle">{{ t('login.subtitle') }}</p>
       </div>
       
       <el-form 
         ref="loginFormRef" 
         :model="loginForm" 
-        :rules="loginRules" 
+        :rules="loginRulesRef" 
         class="login-form"
         @submit.prevent="handleLogin"
       >
         <el-form-item prop="username">
           <el-input
             v-model="loginForm.username"
-            placeholder="用户名"
+            :placeholder="t('login.username')"
             size="large"
             :prefix-icon="User"
             @keyup.enter="handleLogin"
@@ -38,7 +38,7 @@
           <el-input
             v-model="loginForm.password"
             type="password"
-            placeholder="密码"
+            :placeholder="t('login.password')"
             size="large"
             :prefix-icon="Lock"
             show-password
@@ -47,7 +47,7 @@
         </el-form-item>
         
         <el-form-item>
-          <el-checkbox v-model="rememberMe">记住我</el-checkbox>
+          <el-checkbox v-model="rememberMe">{{ t('login.rememberMe') }}</el-checkbox>
         </el-form-item>
         
         <el-form-item>
@@ -58,30 +58,33 @@
             :loading="loading"
             @click="handleLogin"
           >
-            {{ loading ? '登录中...' : '登 录' }}
+            {{ loading ? t('login.loggingIn') : t('login.login') }}
           </el-button>
         </el-form-item>
       </el-form>
       
       <div class="login-footer">
-        <p>默认账户: admin / admin123</p>
+        <p>{{ t('login.defaultAccount') }}</p>
       </div>
     </div>
     
     <div class="copyright">
-      © 2026 AI Native APS - Advanced Planning & Scheduling System
+      © 2026 AI Native APS - {{ t('login.advancedPlanningSystem') }}
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { authApi } from '@/api'
+import { useI18nStore } from '@/stores/i18n'
 
 const router = useRouter()
+const i18nStore = useI18nStore()
+const t = (key) => i18nStore.t(key)
 const loginFormRef = ref(null)
 const loading = ref(false)
 const rememberMe = ref(false)
@@ -91,14 +94,14 @@ const loginForm = reactive({
   password: ''
 })
 
-const loginRules = {
+const loginRulesRef = computed(() => ({
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' }
+    { required: true, message: i18nStore.t('login.enterUsername'), trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' }
+    { required: true, message: i18nStore.t('login.enterPassword'), trigger: 'blur' }
   ]
-}
+}))
 
 onMounted(() => {
   // 检查是否有记住的用户名
@@ -111,7 +114,7 @@ onMounted(() => {
   // 如果已登录，跳转到首页
   const token = localStorage.getItem('token')
   if (token) {
-    router.push('/gantt')
+    router.push('/dashboard')
   }
 })
 
@@ -136,12 +139,13 @@ const handleLogin = async () => {
         localStorage.removeItem('rememberedUsername')
       }
       
-      ElMessage.success(`欢迎回来，${response.user.full_name || response.user.username}！`)
+      const name = response.user.full_name || response.user.username
+      ElMessage.success(i18nStore.t('login.welcomeBackMessage').replace('{name}', name))
       
       // 跳转到首页
-      router.push('/gantt')
+      router.push('/dashboard')
     } catch (error) {
-      const message = error.response?.data?.detail || '登录失败，请检查用户名和密码'
+      const message = error.response?.data?.detail || i18nStore.t('login.loginFailed')
       ElMessage.error(message)
     } finally {
       loading.value = false

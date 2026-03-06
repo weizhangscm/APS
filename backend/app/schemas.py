@@ -88,6 +88,42 @@ class ResourceWithWorkCenter(Resource):
     work_center: Optional[WorkCenter] = None
 
 
+# Shift Schemas
+class ShiftBase(BaseModel):
+    resource_id: int
+    shift_code: str = Field(..., max_length=50)
+    shift_name: str = Field(..., max_length=100)
+    start_time: str = Field(..., max_length=10)   # "HH:mm"
+    end_time: str = Field(..., max_length=10)     # "HH:mm"
+    break_time: int = 0                           # 休息时间(分钟)
+
+
+class ShiftCreate(ShiftBase):
+    pass
+
+
+class ShiftUpdate(BaseModel):
+    resource_id: Optional[int] = None
+    shift_code: Optional[str] = Field(None, max_length=50)
+    shift_name: Optional[str] = Field(None, max_length=100)
+    start_time: Optional[str] = Field(None, max_length=10)
+    end_time: Optional[str] = Field(None, max_length=10)
+    break_time: Optional[int] = None
+
+
+class Shift(ShiftBase):
+    id: int
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ShiftWithResource(Shift):
+    resource: Optional[Resource] = None
+
+
 # Product Schemas
 class ProductBase(BaseModel):
     code: str = Field(..., max_length=50)

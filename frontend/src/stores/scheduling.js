@@ -143,9 +143,12 @@ export const useSchedulingStore = defineStore('scheduling', () => {
     }
   }
 
-  async function fetchKPIData() {
+  async function fetchKPIData(options = {}) {
     try {
-      kpiData.value = await schedulingApi.getKPI()
+      const params = {}
+      if (options.dueDateStart) params.due_date_start = options.dueDateStart
+      if (options.dueDateEnd) params.due_date_end = options.dueDateEnd
+      kpiData.value = await schedulingApi.getKPI(params)
     } catch (error) {
       console.error('Failed to fetch KPI data:', error)
     }

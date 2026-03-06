@@ -4,14 +4,14 @@
     <div class="toolbar toolbar-filters">
       <div class="filter-group">
         <label class="filter-label">
-          显示区间:<span class="required">*</span>
+          {{ t('dsView.displayRange') }}:<span class="required">*</span>
         </label>
         <el-date-picker
           v-model="dateRange"
           type="daterange"
           range-separator="-"
-          start-placeholder="开始日期"
-          end-placeholder="结束日期"
+          :start-placeholder="t('dsView.startDate')"
+          :end-placeholder="t('dsView.endDate')"
           :shortcuts="dateShortcuts"
           format="YYYY.MM.DD"
           value-format="YYYY-MM-DD"
@@ -21,13 +21,13 @@
       </div>
       
       <div class="filter-group">
-        <label class="filter-label">资源名称:</label>
+        <label class="filter-label">{{ t('dsView.resourceName') }}:</label>
         <el-select
           v-model="selectedResources"
           multiple
           collapse-tags
           collapse-tags-tooltip
-          placeholder="选择资源"
+          :placeholder="t('dsView.selectResources')"
           style="width: 220px"
           @change="handleResourceChange"
         >
@@ -38,13 +38,13 @@
                 :indeterminate="resourcesIndeterminate"
                 @change="handleSelectAllResources"
               >
-                全选
+                {{ t('dsView.selectAll') }}
               </el-checkbox>
               <el-checkbox
                 v-model="bottleneckOnly"
                 @change="handleBottleneckChange"
               >
-                瓶颈
+                {{ t('dsView.bottleneck') }}
               </el-checkbox>
             </div>
           </template>
@@ -58,13 +58,13 @@
       </div>
       
       <div class="filter-group">
-        <label class="filter-label">产品:</label>
+        <label class="filter-label">{{ t('dsView.products') }}:</label>
         <el-select
           v-model="selectedProducts"
           multiple
           collapse-tags
           collapse-tags-tooltip
-          placeholder="选择产品"
+          :placeholder="t('dsView.selectProducts')"
           style="width: 220px"
           @change="handleProductChange"
         >
@@ -74,7 +74,7 @@
               :indeterminate="productsIndeterminate"
               @change="handleSelectAllProducts"
             >
-              全选
+              {{ t('dsView.selectAll') }}
             </el-checkbox>
           </template>
           <el-option
@@ -91,13 +91,13 @@
     <div class="toolbar toolbar-actions">
       <!-- 左侧 - 图表选择 -->
       <div class="toolbar-left">
-        <span class="section-label">选择图表</span>
+        <span class="section-label">{{ t('dsView.selectCharts') }}</span>
         <el-select
           v-model="selectedCharts"
           multiple
           collapse-tags
           collapse-tags-tooltip
-          placeholder="选择图表"
+          :placeholder="t('dsView.selectCharts')"
           style="width: 200px"
         >
           <el-option
@@ -113,53 +113,53 @@
       <div class="toolbar-center">
         <!-- 缩放控制 -->
         <el-button-group class="zoom-controls">
-          <el-button :icon="ZoomIn" @click="handleZoomIn" title="放大" />
-          <el-button :icon="ZoomOut" @click="handleZoomOut" title="缩小" />
+          <el-button :icon="ZoomIn" @click="handleZoomIn" :title="t('dsView.zoomIn')" />
+          <el-button :icon="ZoomOut" @click="handleZoomOut" :title="t('dsView.zoomOut')" />
         </el-button-group>
         <el-select v-model="currentZoom" style="width: 100px; margin-right: 8px;" @change="handleZoomChange">
-          <el-option label="小时" :value="0" />
-          <el-option label="4小时" :value="1" />
-          <el-option label="天" :value="2" />
-          <el-option label="周" :value="3" />
-          <el-option label="月" :value="4" />
+          <el-option :label="t('dsView.hour')" :value="0" />
+          <el-option :label="t('dsView.fourHours')" :value="1" />
+          <el-option :label="t('dsView.day')" :value="2" />
+          <el-option :label="t('dsView.week')" :value="3" />
+          <el-option :label="t('dsView.month')" :value="4" />
         </el-select>
         
         <!-- 刷新按钮 -->
-        <el-button :icon="Refresh" @click="handleRefresh">刷新</el-button>
+        <el-button :icon="Refresh" @click="handleRefresh">{{ t('dsView.refresh') }}</el-button>
         
         <!-- 警报按钮 -->
         <el-dropdown trigger="click" @command="handleAlertCommand">
           <el-button class="btn-outline">
             <el-icon><WarningFilled /></el-icon>
-            警报
+            {{ t('dsView.alerts') }}
             <el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="order-delay">订单延误</el-dropdown-item>
-              <el-dropdown-item command="material-shortage">物料短缺</el-dropdown-item>
+              <el-dropdown-item command="order-delay">{{ t('dsView.orderDelayAlert') }}</el-dropdown-item>
+              <el-dropdown-item command="material-shortage">{{ t('dsView.materialShortageAlert') }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
         
         <!-- 策略按钮 -->
-        <el-button @click="strategyDialogVisible = true">策略</el-button>
+        <el-button @click="strategyDialogVisible = true">{{ t('dsView.strategy') }}</el-button>
         
         <!-- 取消计划按钮 -->
         <el-button class="btn-outline" @click="handleCancelPlan" :loading="cancellingPlan">
-          取消计划
+          {{ t('dsView.cancelPlan') }}
         </el-button>
         
         <!-- 自动计划按钮 -->
         <el-dropdown trigger="click" @command="handleAutoPlanCommand">
           <el-button class="btn-outline">
-            自动计划
+            {{ t('dsView.autoPlan') }}
             <el-icon class="el-icon--right"><ArrowDown /></el-icon>
           </el-button>
           <template #dropdown>
             <el-dropdown-menu>
-              <el-dropdown-item command="heuristic">启发式</el-dropdown-item>
-              <el-dropdown-item command="optimizer">优化器</el-dropdown-item>
+              <el-dropdown-item command="heuristic">{{ t('dsView.heuristic') }}</el-dropdown-item>
+              <el-dropdown-item command="optimizer">{{ t('dsView.optimizer') }}</el-dropdown-item>
             </el-dropdown-menu>
           </template>
         </el-dropdown>
@@ -171,7 +171,7 @@
           @click="handleDiscardPlan" 
           :loading="discardingPlan"
         >
-          丢弃计划
+          {{ t('dsView.discardPlan') }}
         </el-button>
         
         <!-- 保存计划按钮 -->
@@ -181,16 +181,16 @@
           :loading="savingPlan"
           :class="{ 'btn-highlight': hasUnsavedChanges }"
         >
-          {{ hasUnsavedChanges ? '保存计划 *' : '保存计划' }}
+          {{ hasUnsavedChanges ? t('dsView.savePlan') + ' *' : t('dsView.savePlan') }}
         </el-button>
         
-        <!-- 日志按钮：查看最近一次启发式/自动计划的详细结果与报错 -->
+        <!-- 日志按钮 -->
         <el-button 
           type="info" 
           plain
           @click="handleShowPlanLog"
         >
-          日志
+          {{ t('dsView.logs') }}
         </el-button>
         
       </div>
@@ -199,13 +199,13 @@
       <div class="toolbar-right">
         <div class="legend-group">
           <span class="legend-item">
-            <span class="legend-box planned"></span>计划订单
+            <span class="legend-box planned"></span>{{ t('dsView.legendPlanned') }}
           </span>
           <span class="legend-item">
-            <span class="legend-box production"></span>生产订单
+            <span class="legend-box production"></span>{{ t('dsView.legendProduction') }}
           </span>
           <span class="legend-item">
-            <span class="legend-box changeover"></span>切换准备
+            <span class="legend-box changeover"></span>{{ t('dsView.legendChangeover') }}
           </span>
         </div>
       </div>
@@ -217,7 +217,7 @@
       <div v-show="selectedCharts.includes('resource')" class="chart-panel">
         <div class="chart-header">
           <span class="chart-title">
-            <a href="javascript:;">资源</a> ({{ resourceCount }})
+            <a href="javascript:;">{{ t('dsView.resources') }}</a> ({{ resourceCount }})
           </span>
         </div>
         <div class="chart-content">
@@ -238,11 +238,11 @@
         <div class="resizer-handle"></div>
       </div>
       
-      <!-- 产品图表 - 使用自定义组件避免 dhtmlx-gantt 单例冲突 -->
+      <!-- 产品图表 -->
       <div v-show="selectedCharts.includes('product')" class="chart-panel">
         <div class="chart-header">
           <span class="chart-title">
-            <a href="javascript:;">产品</a> ({{ productCount }})
+            <a href="javascript:;">{{ t('dsView.productChart') }}</a> ({{ productCount }})
           </span>
         </div>
         <div class="chart-content">
@@ -267,7 +267,7 @@
       <div v-show="selectedCharts.includes('utilization')" class="chart-panel">
         <div class="chart-header">
           <span class="chart-title">
-            <a href="javascript:;">资源利用率</a> ({{ utilizationCount }})
+            <a href="javascript:;">{{ t('dsView.resourceUtilizationChart') }}</a> ({{ utilizationCount }})
           </span>
         </div>
         <div class="chart-content">
@@ -282,145 +282,145 @@
     </div>
     
     <!-- 策略配置对话框 -->
-    <el-dialog v-model="strategyDialogVisible" title="策略配置" width="600px">
+    <el-dialog v-model="strategyDialogVisible" :title="t('dsView.strategyDialogTitle')" width="600px">
       <el-form :model="strategyForm" label-width="140px">
-        <el-form-item label="排序规则">
+        <el-form-item :label="t('dsView.sortingRule')">
           <el-select v-model="strategyForm.sortingRule" style="width: 100%">
-            <el-option value="订单优先级" label="订单优先级" />
+            <el-option value="订单优先级" :label="t('dsView.orderPriority')" />
           </el-select>
-          <div class="form-item-hint">决定订单的排程顺序，优先级高的订单先排程</div>
+          <div class="form-item-hint">{{ t('dsView.sortingRuleHint') }}</div>
         </el-form-item>
-        <el-form-item label="计划模式">
+        <el-form-item :label="t('dsView.planningMode')">
           <el-select v-model="strategyForm.planningMode" style="width: 100%">
-            <el-option value="查找槽位" label="查找槽位" />
+            <el-option value="查找槽位" :label="t('dsView.findSlot')" />
           </el-select>
-          <div class="form-item-hint">在资源的现有排程中搜索足够大的空闲时间段（有限产能）</div>
+          <div class="form-item-hint">{{ t('dsView.finiteCapacityHint') }}</div>
         </el-form-item>
-        <el-form-item label="计划方向">
+        <el-form-item :label="t('dsView.planningDirection')">
           <el-select v-model="strategyForm.planningDirection" style="width: 100%">
-            <el-option value="向前" label="向前" />
-            <el-option value="向后" label="向后" />
+            <el-option value="向前" :label="t('dsView.forward')" />
+            <el-option value="向后" :label="t('dsView.backward')" />
           </el-select>
-          <div class="form-item-hint">向前：从期望日期向未来搜索；向后：从交期向过去搜索</div>
+          <div class="form-item-hint">{{ t('dsView.planningDirectionHint') }}</div>
         </el-form-item>
-        <el-form-item label="期望日期">
+        <el-form-item :label="t('dsView.expectedDate')">
           <el-select v-model="strategyForm.expectedDate" style="width: 100%">
-            <el-option value="当前日期" label="当前日期" />
-            <el-option value="指定日期" label="指定日期" />
+            <el-option value="当前日期" :label="t('dsView.today')" />
+            <el-option value="指定日期" :label="t('dsView.specifiedDate')" />
           </el-select>
-          <div class="form-item-hint">当前日期：使用系统当前时间；指定日期：使用下方选择的日期作为排程起点</div>
+          <div class="form-item-hint">{{ t('dsView.todayHint') }}</div>
         </el-form-item>
-        <el-form-item v-if="strategyForm.expectedDate === '指定日期'" label="指定日期">
+        <el-form-item v-if="strategyForm.expectedDate === '指定日期'" :label="t('dsView.specifiedDate')">
           <el-date-picker
             v-model="strategyForm.expectedDateValue"
             type="date"
-            placeholder="选择期望日期"
+            :placeholder="t('dsView.selectExpectedDate')"
             style="width: 100%"
             value-format="YYYY-MM-DD"
             format="YYYY-MM-DD"
             :prefix-icon="Calendar"
           />
         </el-form-item>
-        <el-form-item label="订单内部关系">
+        <el-form-item :label="t('dsView.orderInternalRelation')">
           <el-select v-model="strategyForm.orderInternalRelation" style="width: 100%">
-            <el-option value="不考虑" label="不考虑" />
-            <el-option value="始终考虑" label="始终考虑" />
+            <el-option value="不考虑" :label="t('dsView.notConsider')" />
+            <el-option value="始终考虑" :label="t('dsView.alwaysConsider')" />
           </el-select>
-          <div class="form-item-hint">不考虑：只排选中资源上的工序；始终考虑：自动调整订单内其他工序以维护时间关系</div>
+          <div class="form-item-hint">{{ t('dsView.orderInternalRelationHint') }}</div>
         </el-form-item>
-        <el-form-item label="子计划模式">
+        <el-form-item :label="t('dsView.subPlanningMode')">
           <el-select v-model="strategyForm.subPlanningMode" style="width: 100%">
-            <el-option value="根据调度模式调度相关操作" label="根据调度模式调度相关操作" />
-            <el-option value="以无限方式调度相关操作" label="以无限方式调度相关操作" />
+            <el-option value="根据调度模式调度相关操作" :label="t('dsView.subPlanningModeSame')" />
+            <el-option value="以无限方式调度相关操作" :label="t('dsView.subPlanningModeInfinite')" />
           </el-select>
-          <div class="form-item-hint">控制关联工序的排程方式：使用相同模式（有限产能）或无限产能模式</div>
+          <div class="form-item-hint">{{ t('dsView.subPlanningModeHint') }}</div>
         </el-form-item>
-        <el-form-item label="计划出错的操作">
+        <el-form-item :label="t('dsView.errorHandling')">
           <el-select v-model="strategyForm.errorHandling" style="width: 100%">
-            <el-option value="立即终止" label="立即终止" />
+            <el-option value="立即终止" :label="t('dsView.terminateImmediately')" />
           </el-select>
-          <div class="form-item-hint">当某工序无法排程时，立即停止整个排程操作</div>
+          <div class="form-item-hint">{{ t('dsView.errorHandlingHint') }}</div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="strategyDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleStrategySave">确定</el-button>
+        <el-button @click="strategyDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleStrategySave">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
     
     <!-- 启发式配置对话框 -->
-    <el-dialog v-model="heuristicDialogVisible" title="启发式" width="400px">
+    <el-dialog v-model="heuristicDialogVisible" :title="t('dsView.heuristic')" width="400px">
       <el-form :model="heuristicForm" label-width="100px">
-        <el-form-item label="选择启发式">
+        <el-form-item :label="t('dsView.selectHeuristic')">
           <el-select v-model="heuristicForm.selected" style="width: 200px">
-            <el-option value="stable_forward" label="稳定向前计划" />
+            <el-option value="stable_forward" :label="t('dsView.stableForward')" />
           </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="heuristicDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleHeuristicExecute" :loading="autoPlanning">执行</el-button>
+        <el-button @click="heuristicDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleHeuristicExecute" :loading="autoPlanning">{{ t('dsView.execute') }}</el-button>
       </template>
     </el-dialog>
     
     <!-- 优化器配置对话框 -->
-    <el-dialog v-model="optimizerDialogVisible" title="优化器配置" width="500px">
+    <el-dialog v-model="optimizerDialogVisible" :title="t('dsView.optimizerConfig')" width="500px">
       <el-form :model="optimizerForm" label-width="120px">
-        <el-form-item label="延迟成本权重">
+        <el-form-item :label="t('dsView.delayCostWeight')">
           <el-slider v-model="optimizerForm.delayCost" :max="100" show-input />
         </el-form-item>
-        <el-form-item label="库存成本权重">
+        <el-form-item :label="t('dsView.inventoryCostWeight')">
           <el-slider v-model="optimizerForm.inventoryCost" :max="100" show-input />
         </el-form-item>
-        <el-form-item label="切换成本权重">
+        <el-form-item :label="t('dsView.setupCostWeight')">
           <el-slider v-model="optimizerForm.setupCost" :max="100" show-input />
         </el-form-item>
-        <el-form-item label="产能利用权重">
+        <el-form-item :label="t('dsView.utilizationWeight')">
           <el-slider v-model="optimizerForm.utilizationWeight" :max="100" show-input />
         </el-form-item>
-        <el-form-item label="优化时间限制">
+        <el-form-item :label="t('dsView.optimizationTimeLimit')">
           <el-input-number v-model="optimizerForm.timeLimit" :min="10" :max="3600" />
-          <span style="margin-left: 8px">秒</span>
+          <span style="margin-left: 8px">{{ t('dsView.seconds') }}</span>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="optimizerDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleOptimizerExecute" :loading="autoPlanning">执行</el-button>
+        <el-button @click="optimizerDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="handleOptimizerExecute" :loading="autoPlanning">{{ t('dsView.execute') }}</el-button>
       </template>
     </el-dialog>
     
     <!-- 警报详情对话框 -->
     <el-dialog v-model="alertDialogVisible" :title="alertDialogTitle" width="800px">
       <el-table :data="alertData" style="width: 100%">
-        <el-table-column prop="order_number" label="订单号" width="150" />
-        <el-table-column prop="product_name" label="产品" width="150" />
-        <el-table-column prop="description" label="描述" />
-        <el-table-column prop="severity" label="严重程度" width="100">
+        <el-table-column prop="order_number" :label="t('dsView.orderNumber')" width="150" />
+        <el-table-column prop="product_name" :label="t('dsView.product')" width="150" />
+        <el-table-column prop="description" :label="t('dsView.description')" />
+        <el-table-column prop="severity" :label="t('dsView.severity')" width="100">
           <template #default="{ row }">
             <el-tag :type="row.severity === 'high' ? 'danger' : row.severity === 'medium' ? 'warning' : 'info'">
-              {{ row.severity === 'high' ? '高' : row.severity === 'medium' ? '中' : '低' }}
+              {{ row.severity === 'high' ? t('dsView.high') : row.severity === 'medium' ? t('dsView.medium') : t('dsView.low') }}
             </el-tag>
           </template>
         </el-table-column>
       </el-table>
     </el-dialog>
 
-    <!-- 计划日志：最近一次启发式/自动计划的详细结果与报错 -->
+    <!-- 计划日志 -->
     <el-dialog
       v-model="planLogDialogVisible"
-      title="计划日志"
+      :title="t('dsView.planLogs')"
       width="720px"
       destroy-on-close
     >
       <template v-if="schedulingStore.planLog">
         <div class="plan-log-message" :class="{ 'is-error': !schedulingStore.planLog.success }">
-          {{ schedulingStore.planLog.message }}
+          {{ translatedPlanLogMessage }}
         </div>
         <div class="plan-log-meta" v-if="schedulingStore.planLog.timestamp">
-          时间：{{ schedulingStore.planLog.timestamp }}
+          {{ t('dsView.time') }}{{ schedulingStore.planLog.timestamp }}
           <template v-if="schedulingStore.planLog.success !== false">
-            ；排程 {{ schedulingStore.planLog.scheduled_orders ?? 0 }} 个订单，
-            {{ schedulingStore.planLog.scheduled_operations ?? 0 }} 道工序
+            ；{{ t('dsView.scheduledOrdersCount').replace('{count}', schedulingStore.planLog.scheduled_orders ?? 0) }}
+            {{ t('dsView.scheduledOperationsCount').replace('{count}', schedulingStore.planLog.scheduled_operations ?? 0) }}
           </template>
         </div>
         <el-table
@@ -429,20 +429,24 @@
           style="width: 100%; margin-top: 12px"
           max-height="360"
         >
-          <el-table-column prop="order_number" label="订单号" width="140" />
-          <el-table-column prop="success" label="结果" width="80">
+          <el-table-column prop="order_number" :label="t('dsView.orderNumber')" width="140" />
+          <el-table-column prop="success" :label="t('dsView.result')" width="80">
             <template #default="{ row }">
               <el-tag :type="row.success ? 'success' : 'danger'" size="small">
-                {{ row.success ? '成功' : '失败' }}
+                {{ row.success ? t('common.success') : t('common.fail') }}
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="operations_count" label="工序数" width="80" />
-          <el-table-column prop="error" label="报错详情" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="operations_count" :label="t('dsView.operationCount')" width="80" />
+          <el-table-column prop="error" :label="t('dsView.errorDetails')" min-width="200" show-overflow-tooltip>
+            <template #default="{ row }">
+              {{ trErr(row.error) }}
+            </template>
+          </el-table-column>
         </el-table>
       </template>
       <template v-else>
-        <div class="plan-log-empty">暂无计划日志，请先运行启发式或自动计划。</div>
+        <div class="plan-log-empty">{{ t('dsView.noPlanLogs') }}</div>
       </template>
     </el-dialog>
   </div>
@@ -461,6 +465,8 @@ import {
 } from '@element-plus/icons-vue'
 import { useSchedulingStore } from '@/stores/scheduling'
 import { useDSFiltersStore } from '@/stores/dsFilters'
+import { useI18nStore } from '@/stores/i18n'
+import { translateBackendMessage, translateBackendError } from '@/utils/translateBackendMessage'
 import { masterDataApi } from '@/api'
 import SimpleGanttTable from '@/components/SimpleGanttTable.vue'
 import SimpleProductTable from '@/components/SimpleProductTable.vue'
@@ -468,6 +474,11 @@ import UtilizationChart from '@/components/UtilizationChart.vue'
 
 const schedulingStore = useSchedulingStore()
 const dsFiltersStore = useDSFiltersStore()
+const i18nStore = useI18nStore()
+const t = (key) => i18nStore.t(key)
+const locale = () => (i18nStore.currentLocale?.value ?? i18nStore.currentLocale ?? 'zh-CN')
+const trMsg = (msg) => translateBackendMessage(msg, t, locale())
+const trErr = (err) => translateBackendError(err, t, locale())
 
 // ===== 筛选条件持久化 =====
 const STORAGE_KEY = 'ds_view_filters'
@@ -543,9 +554,9 @@ const dateRange = ref(
   ]
 )
 
-const dateShortcuts = [
+const dateShortcuts = computed(() => [
   {
-    text: '前5天到未来1月',
+    text: t('dsView.last5DaysTo1Month'),
     value: () => {
       const start = new Date()
       start.setDate(start.getDate() - 5)
@@ -555,7 +566,7 @@ const dateShortcuts = [
     }
   },
   {
-    text: '本周',
+    text: t('dsView.thisWeek'),
     value: () => {
       const start = new Date()
       start.setDate(start.getDate() - start.getDay())
@@ -565,11 +576,11 @@ const dateShortcuts = [
     }
   },
   {
-    text: '本月',
+    text: t('dsView.thisMonth'),
     value: () => [startOfMonth, endOfMonth]
   },
   {
-    text: '最近30天',
+    text: t('dsView.last30Days'),
     value: () => {
       const end = new Date()
       const start = new Date()
@@ -577,7 +588,7 @@ const dateShortcuts = [
       return [start, end]
     }
   }
-]
+])
 
 // ===== 资源筛选 =====
 const selectedResources = ref(savedFilters?.selectedResources || [])
@@ -648,11 +659,11 @@ const handleSelectAllProducts = (val) => {
 
 // ===== 图表选择 =====
 const selectedCharts = ref(savedFilters?.selectedCharts || ['resource'])
-const chartOptions = [
-  { value: 'resource', label: '资源图表' },
-  { value: 'product', label: '产品图表' },
-  { value: 'utilization', label: '资源利用图表' }
-]
+const chartOptions = computed(() => [
+  { value: 'resource', label: t('dsView.resourceChart') },
+  { value: 'product', label: t('dsView.productChart') },
+  { value: 'utilization', label: t('dsView.utilizationChart') }
+])
 
 // ===== 缩放控制 =====
 const currentZoom = ref(savedFilters?.currentZoom ?? 1) // 默认4小时视图
@@ -1081,19 +1092,19 @@ const handleProductChange = () => {
 
 const handleRefresh = () => {
   loadGanttData()
-  ElMessage.success('数据已刷新')
+  ElMessage.success(t('dsView.dataRefreshed'))
 }
 
 const handleAlertCommand = (command) => {
   if (command === 'order-delay') {
-    alertDialogTitle.value = '订单延误警报'
+    alertDialogTitle.value = t('dsView.orderDelayAlert')
     // 模拟数据
     alertData.value = [
       { order_number: 'ORD-001', product_name: '产品A', description: '预计延误2天', severity: 'high' },
       { order_number: 'ORD-002', product_name: '产品B', description: '预计延误1天', severity: 'medium' }
     ]
   } else if (command === 'material-shortage') {
-    alertDialogTitle.value = '物料短缺警报'
+    alertDialogTitle.value = t('dsView.materialShortageAlert')
     alertData.value = [
       { order_number: 'ORD-003', product_name: '产品C', description: '物料M001短缺', severity: 'high' }
     ]
@@ -1112,52 +1123,48 @@ const handleAutoPlanCommand = (command) => {
 const handleStrategySave = () => {
   currentStrategy.value = strategyForm.sortingRule
   strategyDialogVisible.value = false
-  ElMessage.success('策略配置已保存')
+  ElMessage.success(t('dsView.saveStrategy'))
 }
 
 const handleHeuristicExecute = async () => {
-  // 检查是否选择了资源
   if (selectedResources.value.length === 0) {
-    ElMessage.warning('请先选择要排程的资源')
+    ElMessage.warning(t('dsView.selectResourcesFirst'))
     return
   }
   
   autoPlanning.value = true
   try {
-    // 获取显示区间
     const [startDate, endDate] = dateRange.value || []
-    
-    // 使用算法参数，排序规则和策略配置从"策略"对话框中获取
     const config = {
       finite_capacity: true,
       resolve_backlog: true,
       resolve_overload: true,
       preserve_scheduled: true,
-      sorting_rule: strategyForm.sortingRule,           // 排序规则
-      planning_mode: strategyForm.planningMode,         // 计划模式
-      planning_direction: strategyForm.planningDirection, // 计划方向
-      expected_date: strategyForm.expectedDate,         // 期望日期
-      expected_date_value: strategyForm.expectedDate === '指定日期' ? (strategyForm.expectedDateValue || startDate) : undefined, // 指定日期时的具体日期
-      order_internal_relation: strategyForm.orderInternalRelation, // 订单内部关系
-      sub_planning_mode: strategyForm.subPlanningMode,  // 子计划模式
-      error_handling: strategyForm.errorHandling,       // 计划出错的操作
+      sorting_rule: strategyForm.sortingRule,
+      planning_mode: strategyForm.planningMode,
+      planning_direction: strategyForm.planningDirection,
+      expected_date: strategyForm.expectedDate,
+      expected_date_value: strategyForm.expectedDate === '指定日期' ? (strategyForm.expectedDateValue || startDate) : undefined,
+      order_internal_relation: strategyForm.orderInternalRelation,
+      sub_planning_mode: strategyForm.subPlanningMode,
+      error_handling: strategyForm.errorHandling,
       planning_horizon: 90,
-      schedule_selected_resources_only: true,           // 只排程选中资源上的工序
-      display_start_date: startDate,                    // 显示区间开始日期
-      display_end_date: endDate                         // 显示区间结束日期
+      schedule_selected_resources_only: true,
+      display_start_date: startDate,
+      display_end_date: endDate
     }
     const res = await schedulingStore.autoPlan('heuristic', heuristicForm.selected, config, selectedResources.value)
     
     if (res && res.success === false) {
-      ElMessage.error(res.message || '显示区间内产能已用尽，排程已终止')
+      ElMessage.error(trMsg(res.message) || t('dsView.capacityExhausted'))
       await loadGanttData()
     } else {
-      ElMessage.success('启发式计划执行成功')
+      ElMessage.success(t('dsView.heuristicPlanSuccess'))
       heuristicDialogVisible.value = false
       await loadGanttData()
     }
   } catch (error) {
-    ElMessage.error(error?.response?.data?.message || '启发式计划执行失败')
+    ElMessage.error(trMsg(error?.response?.data?.message) || t('dsView.heuristicPlanFailed'))
   } finally {
     autoPlanning.value = false
   }
@@ -1174,11 +1181,11 @@ const handleOptimizerExecute = async () => {
       time_limit: optimizerForm.timeLimit
     }
     await schedulingStore.autoPlan('optimizer', null, config, selectedResources.value)
-    ElMessage.success('优化器计划执行成功')
+    ElMessage.success(t('dsView.optimizerPlanSuccess'))
     optimizerDialogVisible.value = false
     await loadGanttData()
   } catch (error) {
-    ElMessage.error('优化器计划执行失败')
+    ElMessage.error(t('dsView.optimizerPlanFailed'))
   } finally {
     autoPlanning.value = false
   }
@@ -1189,28 +1196,27 @@ const cancellingPlan = ref(false)
 
 const handleCancelPlan = async () => {
   if (selectedResources.value.length === 0 && selectedProducts.value.length === 0) {
-    ElMessage.warning('请先选择资源或产品')
+    ElMessage.warning(t('dsView.selectResourcesOrProducts'))
     return
   }
   
   cancellingPlan.value = true
   try {
-    // 调用取消计划 API - 根据选中的资源和产品清除排程
     const result = await schedulingStore.cancelPlan(
       selectedResources.value.length > 0 ? selectedResources.value : null,
       selectedProducts.value.length > 0 ? selectedProducts.value : null
     )
     
     if (result.success) {
-      ElMessage.success(result.message || '取消计划成功')
+      ElMessage.success(trMsg(result.message) || t('dsView.cancelPlanSuccess'))
     } else {
-      ElMessage.warning(result.message || '没有找到需要取消的排程')
+      ElMessage.warning(trMsg(result.message) || t('dsView.noScheduleToCancel'))
     }
     
     await loadGanttData()
   } catch (error) {
     console.error('Cancel plan error:', error)
-    ElMessage.error('取消计划失败')
+    ElMessage.error(t('dsView.cancelPlanFailed'))
   } finally {
     cancellingPlan.value = false
   }
@@ -1221,6 +1227,12 @@ const savingPlan = ref(false)
 
 // 是否有未保存的排程更改
 const hasUnsavedChanges = computed(() => schedulingStore.hasUnsavedChanges)
+
+const translatedPlanLogMessage = computed(() => {
+  const log = schedulingStore.planLog
+  if (!log || !log.message) return ''
+  return translateBackendMessage(log.message, t, locale())
+})
 
 const handleShowPlanLog = () => {
   planLogDialogVisible.value = true
@@ -1237,30 +1249,28 @@ const handleSavePlan = async () => {
       )
       
       if (result.success) {
-        ElMessage.success(result.message || '保存计划成功')
+        ElMessage.success(trMsg(result.message) || t('dsView.savePlanSuccess'))
       } else {
-        ElMessage.warning(result.message || '保存计划失败')
+        ElMessage.warning(trMsg(result.message) || t('dsView.savePlanFailed'))
       }
       
       await loadGanttData()
     } catch (error) {
       console.error('Save plan error:', error)
-      ElMessage.error('保存计划失败')
+      ElMessage.error(t('dsView.savePlanFailed'))
     } finally {
       savingPlan.value = false
     }
     return
   }
   
-  // 没有缓存数据时，走原有逻辑
   if (selectedResources.value.length === 0 && selectedProducts.value.length === 0) {
-    ElMessage.warning('请先选择资源或产品')
+    ElMessage.warning(t('dsView.selectResourcesOrProducts'))
     return
   }
   
   savingPlan.value = true
   try {
-    // 调用保存计划 API - 将排程的计划订单状态改为已排程
     const result = await schedulingStore.savePlan(
       selectedResources.value.length > 0 ? selectedResources.value : null,
       selectedProducts.value.length > 0 ? selectedProducts.value : null
@@ -1268,18 +1278,18 @@ const handleSavePlan = async () => {
     
     if (result.success) {
       if (result.saved_orders > 0) {
-        ElMessage.success(result.message || '保存计划成功')
+        ElMessage.success(trMsg(result.message) || t('dsView.savePlanSuccess'))
       } else {
-        ElMessage.warning(result.message || '没有找到需要保存的排程')
+        ElMessage.warning(trMsg(result.message) || t('dsView.noScheduleToSave'))
       }
     } else {
-      ElMessage.warning(result.message || '保存计划失败')
+      ElMessage.warning(trMsg(result.message) || t('dsView.savePlanFailed'))
     }
     
     await loadGanttData()
   } catch (error) {
     console.error('Save plan error:', error)
-    ElMessage.error('保存计划失败')
+    ElMessage.error(t('dsView.savePlanFailed'))
   } finally {
     savingPlan.value = false
   }
@@ -1291,11 +1301,11 @@ const discardingPlan = ref(false)
 const handleDiscardPlan = async () => {
   try {
     await ElMessageBox.confirm(
-      '确定要丢弃当前的排程更改吗？所有未保存的更改将会丢失，订单将恢复到之前的状态。',
-      '丢弃计划',
+      t('dsView.confirmDiscardChanges'),
+      t('dsView.discardChangesTitle'),
       {
-        confirmButtonText: '确定丢弃',
-        cancelButtonText: '取消',
+        confirmButtonText: t('dsView.confirmDiscard'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
@@ -1305,15 +1315,15 @@ const handleDiscardPlan = async () => {
       const result = await schedulingStore.discardPlan()
       
       if (result.success) {
-        ElMessage.success(result.message || '已丢弃排程更改')
+        ElMessage.success(trMsg(result.message) || t('dsView.discardChangesSuccess'))
       } else {
-        ElMessage.warning(result.message || '丢弃计划失败')
+        ElMessage.warning(trMsg(result.message) || t('dsView.discardChangesFailed'))
       }
       
       await loadGanttData()
     } catch (error) {
       console.error('Discard plan error:', error)
-      ElMessage.error('丢弃计划失败')
+      ElMessage.error(t('dsView.discardChangesFailed'))
     } finally {
       discardingPlan.value = false
     }
@@ -1324,17 +1334,17 @@ const handleDiscardPlan = async () => {
 
 const handleReplan = async () => {
   if (selectedResources.value.length === 0) {
-    ElMessage.warning('请先选择资源')
+    ElMessage.warning(t('dsView.selectResourcesFirst'))
     return
   }
   
   replanning.value = true
   try {
     await schedulingStore.rescheduleResource(selectedResources.value, currentStrategy.value)
-    ElMessage.success('重新计划成功')
+    ElMessage.success(t('dsView.replanSuccess'))
     await loadGanttData()
   } catch (error) {
-    ElMessage.error('重新计划失败')
+    ElMessage.error(t('dsView.replanFailed'))
   } finally {
     replanning.value = false
   }
@@ -1348,13 +1358,13 @@ const handleTaskUpdated = async (data) => {
       data.resourceId
     )
     if (result.success) {
-      ElMessage.success('工序已调整')
+      ElMessage.success(t('messages.operationSuccess'))
     } else {
-      ElMessage.error(result.message)
+      ElMessage.error(trMsg(result.message))
       await loadGanttData()
     }
   } catch (error) {
-    ElMessage.error('更新失败')
+    ElMessage.error(t('messages.updateFailed'))
     await loadGanttData()
   }
 }

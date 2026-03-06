@@ -143,6 +143,80 @@ def delete_resource(resource_id: int, db: Session = Depends(get_db)):
     return {"message": "资源已删除"}
 
 
+# ==================== Shifts 班次 ====================
+
+@router.get("/shifts", response_model=List[schemas.ShiftWithResource])
+def get_shifts(
+    skip: int = 0,
+    limit: int = 500,
+    resource_id: int = None,
+    db: Session = Depends(get_db)
+):
+    """获取所有班次"""
+    query = db.query(models.Shift).options(joinedload(models.Shift.resource))
+    if resource_id is not None:
+        query = query.filter(models.Shift.resource_id == resource_id)
+    return query.offset(skip).limit(limit).all()
+
+
+@router.get("/shifts/{shift_id}", response_model=schemas.ShiftWithResource)
+def get_shift(shift_id: int, db: Session = Depends(get_db)):
+    """获取单个班次"""
+    shift = db.query(models.Shift).options(
+        joinedload(models.Shift.resource)
+    ).filter(models.Shift.id == shift_id).first()
+    if not shift:
+        raise HTTPException(status_code=404, detail="班次不存在")
+    return shift
+
+
+@router.post("/shifts", response_model=schemas.ShiftWithResource)
+def create_shift(shift: schemas.ShiftCreate, db: Session = Depends(get_db)):
+    """创建班次"""
+    resource = db.query(models.Resource).filter(models.Resource.id == shift.resource_id).first()
+    if not resource:
+        raise HTTPException(status_code=400, detail="资源不存在")
+    db_shift = models.Shift(**shift.model_dump())
+    db.add(db_shift)
+    db.commit()
+    db.refresh(db_shift)
+    # 重新加载以带出 resource
+    return db.query(models.Shift).options(
+        joinedload(models.Shift.resource)
+    ).filter(models.Shift.id == db_shift.id).first()
+
+
+@router.put("/shifts/{shift_id}", response_model=schemas.ShiftWithResource)
+def update_shift(shift_id: int, shift: schemas.ShiftUpdate, db: Session = Depends(get_db)):
+    """更新班次"""
+    db_shift = db.query(models.Shift).filter(models.Shift.id == shift_id).first()
+    if not db_shift:
+        raise HTTPException(status_code=404, detail="班次不存在")
+    update_data = shift.model_dump(exclude_unset=True)
+    if "resource_id" in update_data and update_data["resource_id"] is not None:
+        resource = db.query(models.Resource).filter(models.Resource.id == update_data["resource_id"]).first()
+        if not resource:
+            raise HTTPException(status_code=400, detail="资源不存在")
+    for key, value in update_data.items():
+        setattr(db_shift, key, value)
+    db.commit()
+    db.refresh(db_shift)
+    return db.query(models.Shift).options(
+        joinedload(models.Shift.resource)
+    ).filter(models.Shift.id == db_shift.id).first()
+
+
+@router.delete("/shifts/{shift_id}")
+def delete_shift(shift_id: int, db: Session = Depends(get_db)):
+    """删除班次"""
+    db_shift = db.query(models.Shift).filter(models.Shift.id == shift_id).first()
+    if not db_shift:
+        raise HTTPException(status_code=404, detail="班次不存在")
+    db.delete(db_shift)
+    db.commit()
+    return {"message": "班次已删除"}
+
+
 # ==================== Products ====================
 
 @router.get("/products", response_model=List[schemas.Product])

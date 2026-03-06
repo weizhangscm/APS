@@ -73,6 +73,25 @@ class Resource(Base):
     # Relationships
     work_center = relationship("WorkCenter", back_populates="resources")
     operations = relationship("Operation", back_populates="resource")
+    shifts = relationship("Shift", back_populates="resource", cascade="all, delete-orphan")
+
+
+class Shift(Base):
+    """班次 - 资源的班次定义"""
+    __tablename__ = "shifts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    resource_id = Column(Integer, ForeignKey("resources.id"), nullable=False)
+    shift_code = Column(String(50), nullable=False)
+    shift_name = Column(String(100), nullable=False)
+    start_time = Column(String(10), nullable=False)  # "HH:mm"
+    end_time = Column(String(10), nullable=False)   # "HH:mm"
+    break_time = Column(Integer, default=0)        # 休息时间(分钟)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    resource = relationship("Resource", back_populates="shifts")
 
 
 class Product(Base):

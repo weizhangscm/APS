@@ -3,7 +3,6 @@
     <!-- 页面标题 -->
     <div class="page-header">
       <h2>切换矩阵配置</h2>
-      <p class="subtitle">配置产品切换时间，参考 SAP PPDS Setup Matrix</p>
     </div>
 
     <!-- 标签页切换 -->
