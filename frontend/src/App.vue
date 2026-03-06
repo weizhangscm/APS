@@ -5,6 +5,7 @@
     
     <!-- 主应用布局 -->
     <div v-else class="app-container">
+      <ChatBot />
       <el-container class="main-container">
         <el-aside width="280px" class="sidebar">
           <div class="logo">
@@ -119,6 +120,7 @@ import en from 'element-plus/dist/locale/en.mjs'
 import { authApi } from '@/api'
 import { useI18nStore } from '@/stores/i18n'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
+import ChatBot from '@/components/ChatBot.vue'
 
 const route = useRoute()
 const router = useRouter()

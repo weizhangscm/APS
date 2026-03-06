@@ -666,5 +666,17 @@ export default {
   language: {
     current: 'English',
     switchTo: 'Switch to Chinese'
+  },
+
+  // Chatbot
+  chatbot: {
+    title: 'Assistant',
+    open: 'Open chat',
+    placeholder: 'Type a message, e.g. find delayed orders, run heuristic…',
+    send: 'Send',
+    thinking: 'Thinking…',
+    noReply: 'No reply',
+    sendFailed: 'Send failed',
+    errorPrefix: 'Request failed: '
   }
 }

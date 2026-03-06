@@ -572,3 +572,15 @@ class SetupMatrixGrid(BaseModel):
     matrix: dict  # {from_group_id: {to_group_id: changeover_time}}
     resource_id: Optional[int] = None
     work_center_id: Optional[int] = None
+
+
+# Chatbot Schemas
+class ChatRequest(BaseModel):
+    message: str
+    context: Optional[dict] = None
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    action_result: Optional[dict] = None
+    action_type: Optional[str] = None

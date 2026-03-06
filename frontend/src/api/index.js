@@ -168,6 +168,12 @@ export const schedulingApi = {
   rescheduleWithLinks: (data) => api.post('/scheduling/reschedule-with-links', data)
 }
 
+// Chatbot APIs
+export const chatbotApi = {
+  sendMessage: (message, context = {}) => api.post('/chatbot/chat', { message, context }),
+  getHistory: () => api.get('/chatbot/history')
+}
+
 // Setup Matrix APIs (切换矩阵)
 export const setupMatrixApi = {
   // Setup Groups

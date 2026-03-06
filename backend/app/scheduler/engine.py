@@ -948,6 +948,48 @@ class SchedulingEngine:
             links=links,
             has_unsaved_changes=schedule_cache.has_unsaved_changes
         )
+
+    def get_delayed_orders(self) -> List[Dict]:
+        """
+        查找延误订单：已排程且计划完成时间晚于交期的订单。
+
+        Returns:
+            延误订单列表，每项含 order_id, order_number, due_date, planned_end, delay_hours 等
+        """
+        from sqlalchemy import func
+        from sqlalchemy.orm import aliased
+
+        # 每个订单下工序的最大 scheduled_end
+        subq = (
+            self.db.query(
+                models.Operation.order_id,
+                func.max(models.Operation.scheduled_end).label("planned_end"),
+            )
+            .filter(models.Operation.scheduled_end.isnot(None))
+            .group_by(models.Operation.order_id)
+        ).subquery()
+
+        # 关联订单，筛选 planned_end > due_date
+        orders = (
+            self.db.query(models.ProductionOrder, subq.c.planned_end)
+            .join(subq, models.ProductionOrder.id == subq.c.order_id)
+            .filter(subq.c.planned_end > models.ProductionOrder.due_date)
+            .all()
+        )
+
+        result = []
+        for order, planned_end in orders:
+            delta = planned_end - order.due_date
+            delay_hours = delta.total_seconds() / 3600.0
+            result.append({
+                "order_id": order.id,
+                "order_number": order.order_number,
+                "due_date": order.due_date.isoformat() if order.due_date else None,
+                "planned_end": planned_end.isoformat() if planned_end else None,
+                "delay_hours": round(delay_hours, 2),
+                "product_id": order.product_id,
+            })
+        return result
     
     def _get_order_view_data(
         self,

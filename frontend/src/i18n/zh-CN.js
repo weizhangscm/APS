@@ -666,5 +666,17 @@ export default {
   language: {
     current: '中文',
     switchTo: '切换到英语'
+  },
+
+  // 聊天机器人
+  chatbot: {
+    title: '智能助手',
+    open: '打开聊天',
+    placeholder: '输入消息，如：查找延误订单、运行启发式排程…',
+    send: '发送',
+    thinking: '正在思考…',
+    noReply: '暂无回复',
+    sendFailed: '发送失败',
+    errorPrefix: '请求失败：'
   }
 }
