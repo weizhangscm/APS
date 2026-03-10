@@ -22,10 +22,39 @@ class SchedulingAlgorithm:
         self.resource_load = defaultdict(list)  # 资源负荷: {resource_id: [(start, end, op_id, product_id), ...]}
         self.setup_matrix_cache = {}  # 切换矩阵缓存
     
+    @staticmethod
+    def _time_to_minutes(time_str: str) -> float:
+        """将 'HH:mm' 或 'HH:mm:ss' 转为分钟数，与 DS 资源视图一致。"""
+        if not time_str:
+            return 0.0
+        parts = time_str.strip().split(":")
+        h = int(parts[0]) if len(parts) > 0 else 0
+        m = int(parts[1]) if len(parts) > 1 else 0
+        sec = int(parts[2]) if len(parts) > 2 else 0
+        return h * 60 + m + sec / 60
+
+    @staticmethod
+    def _shift_production_hours(start_time: str, end_time: str, break_minutes: int) -> float:
+        """单班次生产时间（小时）= 结束 - 开始 - 休息，与 DS 资源视图公式一致。"""
+        start_min = SchedulingAlgorithm._time_to_minutes(start_time)
+        end_min = SchedulingAlgorithm._time_to_minutes(end_time)
+        minutes = max(0.0, end_min - start_min - break_minutes)
+        return round(minutes / 60 * 100) / 100
+
     def get_resource_capacity(self, resource_id: int) -> float:
-        """获取资源每日产能(小时)"""
+        """获取资源每日产能(小时)。无班次时与 DS 资源视图一致取 9 小时；有班次时为班次(结束−开始−休息)之和。"""
         resource = self.db.query(models.Resource).filter(models.Resource.id == resource_id).first()
-        return resource.capacity_per_day if resource else 8.0
+        if not resource:
+            return 9.0
+        shifts = self.db.query(models.Shift).filter(models.Shift.resource_id == resource.id).all()
+        if not shifts:
+            return 9.0
+        total = 0.0
+        for s in shifts:
+            total += self._shift_production_hours(s.start_time, s.end_time, s.break_time or 0)
+        if total > 0:
+            return round(total, 2)
+        return 9.0
     
     def get_available_resources(self, work_center_id: int) -> List[models.Resource]:
         """获取工作中心的可用资源"""

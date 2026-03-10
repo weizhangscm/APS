@@ -90,7 +90,7 @@ export default {
     title: 'KPI Dashboard',
     refreshData: 'Refresh Data',
     refreshView: 'Refresh View',
-    dateRange: 'Due Date Range',
+    dateRange: 'Date Range',
     shortcuts: {
       thisWeek: 'This Week',
       thisMonth: 'This Month',
@@ -670,8 +670,16 @@ export default {
 
   // Chatbot
   chatbot: {
-    title: 'Assistant',
-    open: 'Open chat',
+    title: 'AI Pilot',
+    pilotName: 'AI Pilot',
+    open: 'Open AI Pilot',
+    back: 'Back',
+    heroTitle: 'WE APS Copilot',
+    heroSubtitle: 'AI-native scheduling assistant. Operate APS with natural language.',
+    quickDelayedOrders: 'Which orders are delayed?',
+    quickHeuristic: 'Run heuristic scheduling',
+    quickCncAnalysis: 'CNC-01 downtime analysis',
+    quickCompareStrategy: 'Compare scheduling strategies',
     placeholder: 'Type a message, e.g. find delayed orders, run heuristic…',
     send: 'Send',
     thinking: 'Thinking…',

@@ -37,10 +37,7 @@
           <div class="cell col-name">{{ resource.resource_name }}</div>
           <div class="cell col-capacity">
             <div class="capacity-scale">
-              <span>27</span>
-              <span>18</span>
-              <span>9</span>
-              <span>0</span>
+              <span v-for="(tick, i) in getCapacityTicks(resource.capacity)" :key="i">{{ formatCapacityTick(tick) }}</span>
             </div>
           </div>
         </div>
@@ -77,12 +74,12 @@
                     'normal': slot.utilization > 0 && slot.utilization <= 1,
                     'empty': slot.utilization === 0 
                   }"
-                  :style="{ height: slot.utilization > 0 ? Math.min(slot.utilization * 100, 100) + '%' : '2px' }"
+                  :style="getBarHeightStyle(slot.utilization, resource.capacity)"
                 >
                   <div 
                     v-if="slot.utilization > 1"
                     class="overload-indicator"
-                    :style="{ height: ((slot.utilization - 1) * 100) + '%' }"
+                    :style="getOverloadHeightStyle(slot.utilization, resource.capacity)"
                   ></div>
                 </div>
               </div>
@@ -246,6 +243,35 @@ const getSlotWidth = (startStr, endStr) => {
   const diffDays = diffMs / (1000 * 60 * 60 * 24)
   
   return Math.max(diffDays * dayWidth.value, 2)
+}
+
+// 左侧产能刻度：0 在底、产能(小时)在顶，与右侧绿色条高度对应（条高 = 占用/产能）
+const getCapacityTicks = (capacity) => {
+  const cap = Number(capacity)
+  const maxVal = (cap > 0 && isFinite(cap)) ? cap : 8
+  const step = maxVal / 3
+  return [
+    Math.round(maxVal * 100) / 100,
+    Math.round(step * 2 * 100) / 100,
+    Math.round(step * 100) / 100,
+    0
+  ]
+}
+
+const formatCapacityTick = (tick) => {
+  return Number(tick) === Math.round(tick) ? String(Math.round(tick)) : Number(tick).toFixed(1)
+}
+
+// 绿色条高度：占行高的 utilization（0~1 对应 0~产能），与左侧刻度一致
+const getBarHeightStyle = (utilization, capacity) => {
+  if (utilization <= 0) return { height: '2px' }
+  const pct = Math.min(utilization * 100, 100)
+  return { height: pct + '%' }
+}
+
+const getOverloadHeightStyle = (utilization) => {
+  if (utilization <= 1) return { height: '0%' }
+  return { height: ((utilization - 1) * 100) + '%' }
 }
 
 // 监听数据变化

@@ -1481,11 +1481,21 @@ class SchedulingEngine:
         self,
         due_date_start: Optional[str] = None,
         due_date_end: Optional[str] = None,
+        schedule_date_start: Optional[str] = None,
+        schedule_date_end: Optional[str] = None,
     ) -> schemas.KPIDashboard:
-        """获取KPI仪表板数据。可选 due_date_start/due_date_end 仅统计交期在此区间内的订单；资源利用三视图按交期区间实际天数计算总产能且仅统计实际占用时间。"""
-        order_ids_in_range: Optional[Set[int]] = None
-        window_start_dt: Optional[datetime] = None
-        window_end_dt: Optional[datetime] = None
+        """获取KPI仪表板数据。
+
+        - 订单 KPI / 平均提前期：按 due_date_start/due_date_end 过滤（保持原有口径）
+        - 资源利用率 / 每日产能负荷 / 资源利用详情：按 schedule_date_start/schedule_date_end 过滤排程时间窗口内的订单
+        """
+        due_order_ids_filter: Optional[Set[int]] = None
+
+        schedule_order_ids_filter: Optional[Set[int]] = None
+        schedule_window_start_dt: Optional[datetime] = None
+        schedule_window_end_dt: Optional[datetime] = None
+
+        # ---- 订单 KPI / 平均提前期：按交期区间过滤（原逻辑保留）----
         if due_date_start or due_date_end:
             try:
                 start_dt = None
@@ -1503,26 +1513,85 @@ class SchedulingEngine:
                     q = q.filter(models.ProductionOrder.due_date >= start_dt)
                 if end_dt is not None:
                     q = q.filter(models.ProductionOrder.due_date <= end_dt)
-                order_ids_in_range = set(row[0] for row in q.all())
-                if start_dt is not None and end_dt is not None:
-                    window_start_dt = start_dt
-                    window_end_dt = end_dt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-                elif start_dt is not None:
-                    window_start_dt = start_dt
-                    window_end_dt = start_dt + timedelta(days=1)
-                elif end_dt is not None:
-                    window_end_dt = end_dt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-                    window_start_dt = window_end_dt - timedelta(days=1)
+                due_order_ids_filter = set(row[0] for row in q.all())
             except ValueError:
-                order_ids_in_range = None
+                due_order_ids_filter = None
+
+        # ---- 资源三视图：按“日期区间”（排程时间窗口）过滤 ----
+        # 兼容：若未传 schedule_date_*，则回退使用 due_date_* 的区间作为窗口（不改现有默认行为）
+        effective_start = schedule_date_start or due_date_start
+        effective_end = schedule_date_end or due_date_end
+
+        if effective_start or effective_end:
+            try:
+                start_dt = None
+                end_dt = None
+                if effective_start:
+                    start_dt = datetime.strptime(effective_start, "%Y-%m-%d").replace(
+                        hour=0, minute=0, second=0, microsecond=0
+                    )
+                if effective_end:
+                    end_dt = datetime.strptime(effective_end, "%Y-%m-%d").replace(
+                        hour=23, minute=59, second=59, microsecond=999999
+                    )
+
+                # 统一窗口为 [start_of_day, next_day_start) 以便做重叠判断
+                if start_dt is not None and end_dt is not None:
+                    schedule_window_start_dt = start_dt
+                    schedule_window_end_dt = (
+                        end_dt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                    )
+                elif start_dt is not None:
+                    schedule_window_start_dt = start_dt
+                    schedule_window_end_dt = start_dt + timedelta(days=1)
+                elif end_dt is not None:
+                    schedule_window_end_dt = end_dt.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+                    schedule_window_start_dt = schedule_window_end_dt - timedelta(days=1)
+
+                if schedule_window_start_dt is not None and schedule_window_end_dt is not None:
+                    # 1) 数据库：工序排程时间与窗口有重叠的订单（生产+计划）
+                    op_q = self.db.query(models.Operation.order_id).filter(
+                        models.Operation.scheduled_start != None,
+                        models.Operation.scheduled_start < schedule_window_end_dt,
+                        models.Operation.scheduled_end > schedule_window_start_dt,
+                    ).distinct()
+                    schedule_order_ids_filter = set(row[0] for row in op_q.all())
+
+                    # 2) 缓存预览排程：同样按窗口重叠过滤并补充 order_id
+                    if schedule_cache.has_unsaved_changes:
+                        for cached_op in schedule_cache.get_all_operations():
+                            s = cached_op.scheduled_start
+                            e = cached_op.scheduled_end
+                            if not s or not e:
+                                continue
+                            if s < schedule_window_end_dt and e > schedule_window_start_dt:
+                                op_db = self.db.query(models.Operation).filter(
+                                    models.Operation.id == cached_op.operation_id
+                                ).first()
+                                if op_db:
+                                    schedule_order_ids_filter.add(op_db.order_id)
+
+                    # 3) 生产订单：无工序排程时间但有 confirmed_start/end 的订单，按 confirmed 区间重叠补充
+                    prod_q = self.db.query(models.ProductionOrder.id).filter(
+                        models.ProductionOrder.order_type == models.OrderType.PRODUCTION.value,
+                        models.ProductionOrder.confirmed_start != None,
+                        models.ProductionOrder.confirmed_end != None,
+                        models.ProductionOrder.confirmed_start < schedule_window_end_dt,
+                        models.ProductionOrder.confirmed_end > schedule_window_start_dt,
+                    )
+                    schedule_order_ids_filter |= set(row[0] for row in prod_q.all())
+            except ValueError:
+                schedule_order_ids_filter = None
+                schedule_window_start_dt = None
+                schedule_window_end_dt = None
 
         resource_utilization = self._calculate_resource_utilization(
-            order_ids_in_range, window_start_dt, window_end_dt
+            schedule_order_ids_filter, schedule_window_start_dt, schedule_window_end_dt
         )
-        order_kpi = self._calculate_order_kpi(order_ids_in_range)
-        avg_lead_time = self._calculate_avg_lead_time(order_ids_in_range)
+        order_kpi = self._calculate_order_kpi(due_order_ids_filter)
+        avg_lead_time = self._calculate_avg_lead_time(due_order_ids_filter)
         capacity_load = self._calculate_capacity_load_by_day(
-            order_ids_in_range, window_start_dt, window_end_dt
+            schedule_order_ids_filter, schedule_window_start_dt, schedule_window_end_dt
         )
 
         return schemas.KPIDashboard(
@@ -1555,20 +1624,18 @@ class SchedulingEngine:
     _DS_DEFAULT_BREAK_MINUTES = 0
 
     def _get_production_hours_per_day(self, resource) -> float:
-        """资源每日生产时间（小时）。与 DS 资源视图一致：有班次则按班次汇总（结束-开始-休息）；无班次则用与 DS 相同的默认工作时间与公式计算。"""
+        """资源每日生产时间（小时）。无班次时与 DS 资源视图一致取 9 小时（09:00-18:00）；有班次时为班次(结束−开始−休息)之和。"""
         shifts = self.db.query(models.Shift).filter(models.Shift.resource_id == resource.id).all()
         if not shifts:
-            return self._shift_production_hours(
-                self._DS_DEFAULT_START, self._DS_DEFAULT_END, self._DS_DEFAULT_BREAK_MINUTES
-            )
+            # 资源主数据中无班次：与 DS 资源视图展示一致，默认 09:00-18:00 = 9 小时
+            return 9.0
+        # 资源主数据中有班次：每日可用时间 = 班次(结束−开始−休息)之和
         total = 0.0
         for s in shifts:
             total += self._shift_production_hours(s.start_time, s.end_time, s.break_time or 0)
         if total > 0:
             return round(total, 2)
-        return self._shift_production_hours(
-            self._DS_DEFAULT_START, self._DS_DEFAULT_END, self._DS_DEFAULT_BREAK_MINUTES
-        )
+        return 9.0
 
     def _get_working_windows(self, resource) -> List[tuple]:
         """返回资源每日工作时段列表，每项 (start_hm, end_hm, break_minutes)。无班次时与 DS 默认一致。"""
@@ -1596,9 +1663,15 @@ class SchedulingEngine:
             day_start = cur.replace(hour=0, minute=0, second=0, microsecond=0)
             day_end = day_start + timedelta(days=1)
             seg_end = min(interval_end, day_end)
-            for start_hm, end_hm, _ in windows:
+            for start_hm, end_hm, break_minutes in windows:
                 work_start = day_start + self._parse_hm_to_timedelta(start_hm)
                 work_end = day_start + self._parse_hm_to_timedelta(end_hm)
+                # 去掉资源班次中的休息时间：将休息从班次末尾整体扣除，而不是在区间内均匀摊分
+                if break_minutes and break_minutes > 0:
+                    work_end = max(
+                        work_start,
+                        work_end - timedelta(minutes=break_minutes)
+                    )
                 clip_s = max(cur, work_start)
                 clip_e = min(seg_end, work_end)
                 if clip_e > clip_s:
@@ -2104,6 +2177,9 @@ class SchedulingEngine:
         result = []
         
         for resource in resources:
+            # 与启发式排程一致的“每日可用时间”（小时）：无班次取 capacity_per_day；有班次取班次(结束-开始-休息)之和
+            production_hours_per_day = self._get_production_hours_per_day(resource)
+
             # 收集该资源的所有工序（包括已排程和待排程）
             all_operations = []
             
@@ -2208,8 +2284,10 @@ class SchedulingEngine:
                         if overlap_end > overlap_start:
                             total_hours += (overlap_end - overlap_start).total_seconds() / 3600
                 
-                # 利用率 = 总工时 / 时间槽大小
-                utilization = total_hours / slot_hours
+                # DS「资源利用率视图」的“每日产能”在天视图应与启发式一致（无班次=capacity_per_day；有班次=班次汇总）
+                # 其他缩放级别保持原逻辑：分母=时间槽大小（小时）
+                slot_capacity_hours = production_hours_per_day if zoom_level == 2 else slot_hours
+                utilization = (total_hours / slot_capacity_hours) if slot_capacity_hours > 0 else 0
                 
                 time_slots.append({
                     "start": current.strftime("%Y-%m-%d %H:%M"),
@@ -2223,7 +2301,8 @@ class SchedulingEngine:
                 "resource_id": resource.id,
                 "resource_name": resource.name,
                 "description": resource.description or "",
-                "capacity": resource.capacity_per_day,
+                # 每日产能（小时）：与启发式一致
+                "capacity": production_hours_per_day,
                 "time_slots": time_slots
             })
         

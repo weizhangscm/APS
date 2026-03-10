@@ -577,6 +577,7 @@ class SetupMatrixGrid(BaseModel):
 # Chatbot Schemas
 class ChatRequest(BaseModel):
     message: str
+    conversation_id: Optional[str] = None  # 会话ID，用于多轮对话
     context: Optional[dict] = None
 
 
@@ -584,3 +585,4 @@ class ChatResponse(BaseModel):
     reply: str
     action_result: Optional[dict] = None
     action_type: Optional[str] = None
+    context_for_next: Optional[dict] = None  # 供下一轮发送的上下文（如已记录的启发式参数）

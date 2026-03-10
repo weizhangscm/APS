@@ -5,6 +5,13 @@ from typing import Optional, List
 import logging
 
 from ..database import get_db
+
+
+def _normalize_same_day_range(start_date: Optional[datetime], end_date: Optional[datetime]):
+    """当显示区间为同一天时，将 end_date 设为该日 23:59:59，使时间区间为 00:00 - 23:59:59。"""
+    if start_date is not None and end_date is not None and start_date.date() == end_date.date():
+        end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return start_date, end_date
 from .. import schemas
 from ..scheduler.engine import SchedulingEngine
 from ..scheduler.constraints import ConstraintValidator
@@ -86,7 +93,9 @@ def get_gantt_data(
     - **view_type**: 视图类型 - order(按订单显示) 或 resource(按资源显示)
     - **start_date**: 开始日期
     - **end_date**: 结束日期
+    - 当 start_date 与 end_date 为同一天时，时间区间按 00:00 - 23:59:59 处理
     """
+    start_date, end_date = _normalize_same_day_range(start_date, end_date)
     engine = SchedulingEngine(db)
     return engine.get_gantt_data(
         start_date=start_date,
@@ -122,10 +131,21 @@ def get_kpi_dashboard(
     db: Session = Depends(get_db),
     due_date_start: Optional[str] = Query(None, description="交期区间开始日期 YYYY-MM-DD"),
     due_date_end: Optional[str] = Query(None, description="交期区间结束日期 YYYY-MM-DD"),
+    schedule_date_start: Optional[str] = Query(None, description="日期区间开始日期 YYYY-MM-DD（用于资源利用率/产能负荷/资源利用详情，按排程时间窗口过滤）"),
+    schedule_date_end: Optional[str] = Query(None, description="日期区间结束日期 YYYY-MM-DD（用于资源利用率/产能负荷/资源利用详情，按排程时间窗口过滤）"),
 ):
-    """获取KPI仪表板数据，可选按交期区间过滤生产订单和计划订单"""
+    """获取KPI仪表板数据。
+
+    - 订单 KPI / 平均提前期：按交期区间（due_date_start/end）过滤，保持原有口径不变
+    - 资源利用率 / 每日产能负荷 / 资源利用详情：按日期区间（schedule_date_start/end）过滤排程计划落在区间内的生产订单与计划订单
+    """
     engine = SchedulingEngine(db)
-    return engine.get_kpi_data(due_date_start=due_date_start, due_date_end=due_date_end)
+    return engine.get_kpi_data(
+        due_date_start=due_date_start,
+        due_date_end=due_date_end,
+        schedule_date_start=schedule_date_start,
+        schedule_date_end=schedule_date_end,
+    )
 
 
 @router.post("/reschedule-resource")
@@ -246,7 +266,9 @@ def get_utilization_data(
     - **start_date**: 开始日期
     - **end_date**: 结束日期
     - **zoom_level**: 缩放级别 (0=小时, 1=4小时, 2=天, 3=周, 4=月)
+    - 当 start_date 与 end_date 为同一天时，时间区间按 00:00 - 23:59:59 处理
     """
+    start_date, end_date = _normalize_same_day_range(start_date, end_date)
     engine = SchedulingEngine(db)
     
     resource_id_list = None

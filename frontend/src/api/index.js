@@ -170,7 +170,13 @@ export const schedulingApi = {
 
 // Chatbot APIs
 export const chatbotApi = {
-  sendMessage: (message, context = {}) => api.post('/chatbot/chat', { message, context }),
+  sendMessage: (message, context = {}, conversationId = null) => {
+    const payload = { message, context }
+    if (conversationId) {
+      payload.conversation_id = conversationId
+    }
+    return api.post('/chatbot/chat', payload)
+  },
   getHistory: () => api.get('/chatbot/history')
 }
 

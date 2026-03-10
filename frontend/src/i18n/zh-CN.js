@@ -90,7 +90,7 @@ export default {
     title: 'KPI仪表板',
     refreshData: '刷新数据',
     refreshView: '刷新视图',
-    dateRange: '交期区间',
+    dateRange: '日期区间',
     shortcuts: {
       thisWeek: '本周',
       thisMonth: '本月',
@@ -670,8 +670,16 @@ export default {
 
   // 聊天机器人
   chatbot: {
-    title: '智能助手',
-    open: '打开聊天',
+    title: 'AI Pilot',
+    pilotName: 'AI Pilot',
+    open: '打开 AI Pilot',
+    back: '返回',
+    heroTitle: 'WE APS Copilot',
+    heroSubtitle: 'AI-Native排程助手，用自然语言操作APS系统',
+    quickDelayedOrders: '哪些订单延误了？',
+    quickHeuristic: '执行启发式排程',
+    quickCncAnalysis: 'CNC-01停机分析',
+    quickCompareStrategy: '对比排程策略',
     placeholder: '输入消息，如：查找延误订单、运行启发式排程…',
     send: '发送',
     thinking: '正在思考…',

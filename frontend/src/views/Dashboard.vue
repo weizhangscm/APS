@@ -233,8 +233,12 @@ const refreshData = async () => {
   try {
     const [start, end] = dateRange.value || []
     await schedulingStore.fetchKPIData({
+      // 保持订单KPI/平均提前期的原有口径：仍按交期区间过滤（不改功能）
       ...(start && { dueDateStart: start }),
-      ...(end && { dueDateEnd: end })
+      ...(end && { dueDateEnd: end }),
+      // 资源利用率/每日产能负荷/资源利用详情：按“日期区间”（排程时间窗口）过滤
+      ...(start && { scheduleDateStart: start }),
+      ...(end && { scheduleDateEnd: end })
     })
   } finally {
     loading.value = false
