@@ -670,11 +670,11 @@ export default {
 
   // Chatbot
   chatbot: {
-    title: 'AI Pilot',
-    pilotName: 'AI Pilot',
-    open: 'Open AI Pilot',
+    title: 'WE APS AI Agent',
+    pilotName: 'WE APS AI Agent',
+    open: 'Open WE APS AI Agent',
     back: 'Back',
-    heroTitle: 'WE APS Copilot',
+    heroTitle: 'WE APS AI Agent',
     heroSubtitle: 'AI-native scheduling assistant. Operate APS with natural language.',
     quickDelayedOrders: 'Which orders are delayed?',
     quickHeuristic: 'Run heuristic scheduling',

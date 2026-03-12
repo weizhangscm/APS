@@ -670,11 +670,11 @@ export default {
 
   // 聊天机器人
   chatbot: {
-    title: 'AI Pilot',
-    pilotName: 'AI Pilot',
-    open: '打开 AI Pilot',
+    title: 'WE APS AI Agent',
+    pilotName: 'WE APS AI Agent',
+    open: '打开 WE APS AI Agent',
     back: '返回',
-    heroTitle: 'WE APS Copilot',
+    heroTitle: 'WE APS AI Agent',
     heroSubtitle: 'AI-Native排程助手，用自然语言操作APS系统',
     quickDelayedOrders: '哪些订单延误了？',
     quickHeuristic: '执行启发式排程',

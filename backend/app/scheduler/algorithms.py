@@ -589,8 +589,8 @@ class StableForwardScheduler(SchedulingAlgorithm):
         # 策略参数（由 engine 设置）
         self.direction = 'forward'  # 计划方向: forward/backward
         self.expected_date_mode = '当前日期'  # 期望日期模式
-        self.order_internal_relation = '不考虑'  # 订单内部关系
-        self.adjust_related_operations = False  # 是否调整关联工序
+        self.order_internal_relation = '始终考虑'  # 订单内部关系
+        self.adjust_related_operations = True   # 是否调整关联工序
         self.infinite_capacity_for_related = False  # 关联工序是否无限产能
         self.error_handling = '立即终止'  # 错误处理方式
         
@@ -917,7 +917,7 @@ class StableForwardScheduler(SchedulingAlgorithm):
         # - 但当 订单内部关系=始终考虑 时，关联工序也会被重排；若不清关联工序的旧占位，会导致
         #   旧占位仍被视为冲突，从而把本应排在显示区间起点的工序推迟到下一天（例如 3.2 → 3.3）。
         selected_resource_ids = getattr(self, 'selected_resource_ids', None)
-        order_internal_relation = getattr(self, 'order_internal_relation', '不考虑')
+        order_internal_relation = getattr(self, 'order_internal_relation', '始终考虑')
         for op in operations:
             if not (op.resource_id and op.scheduled_start and op.scheduled_end):
                 continue
@@ -980,7 +980,7 @@ class StableForwardScheduler(SchedulingAlgorithm):
         adjust_related_operations = getattr(self, 'adjust_related_operations', False)
         infinite_capacity_for_related = getattr(self, 'infinite_capacity_for_related', False)
         selected_resource_ids = getattr(self, 'selected_resource_ids', None)
-        order_internal_relation = getattr(self, 'order_internal_relation', '不考虑')
+        order_internal_relation = getattr(self, 'order_internal_relation', '始终考虑')
         
         current_product_id = order.product_id
         scheduled_ops = []

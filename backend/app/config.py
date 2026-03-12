@@ -9,14 +9,15 @@ from pathlib import Path
 class Config:
     """应用配置类"""
     
-    # OpenAI 配置
+    # OpenAI 配置（兼容多种 AI 模型）
     # 首先尝试从环境变量读取，如果没有则使用默认值（开发环境）
     OPENAI_API_KEY: Optional[str] = (
         os.environ.get("OPENAI_API_KEY", "").strip() or 
-        "sk-B3G5StfWpvvV2w4ScGlbmAI2hR6l0ypvUfA43RBMHBHqPJ7Z"  # 开发环境默认值
+        "sk-kpTnRoj9FgVj5u0vEh0IYAGgjs1D1XZs7vi2ROAomLKwGhzv"  # Gemini API Key
     )
-    OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gpt-4o").strip()
-    OPENAI_BASE_URL: Optional[str] = os.environ.get("OPENAI_BASE_URL", "").strip() or None
+    # 使用 Gemini 3 Pro Preview
+    OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gemini-3-pro-preview").strip()
+    OPENAI_BASE_URL: Optional[str] = os.environ.get("OPENAI_BASE_URL", "").strip() or "https://xiaoai.plus/v1"
     
     # LLM 对话配置
     MAX_CONVERSATION_HISTORY: int = 20  # 最大保留消息数
@@ -32,7 +33,11 @@ class Config:
     @classmethod
     def get_openai_client_kwargs(cls) -> dict:
         """获取 OpenAI 客户端初始化参数"""
-        kwargs = {"api_key": cls.OPENAI_API_KEY}
+        kwargs = {
+            "api_key": cls.OPENAI_API_KEY,
+            "timeout": 120.0,  # 设置超时时间为120秒
+            "max_retries": 2    # 最多重试2次
+        }
         if cls.OPENAI_BASE_URL:
             kwargs["base_url"] = cls.OPENAI_BASE_URL
         return kwargs

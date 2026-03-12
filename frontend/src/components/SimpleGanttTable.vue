@@ -54,11 +54,12 @@
             v-for="day in timeAxis" 
             :key="day.date" 
             class="time-slot"
+            :class="{ 'is-hour-view': props.zoomLevel === 0 }"
             :style="{ width: dayWidth + 'px' }"
           >
             <div class="day-label">{{ day.dateStr }}</div>
             <div class="hour-labels">
-              <span v-for="hour in [0, 4, 8, 12, 16, 20]" :key="hour">{{ String(hour).padStart(2, '0') }}:00</span>
+              <span v-for="hour in hourTicks" :key="hour">{{ String(hour).padStart(2, '0') }}:00</span>
             </div>
           </div>
         </div>
@@ -175,6 +176,14 @@ const dayWidth = computed(() => {
     4: 20    // 月视图
   }
   return widthMap[props.zoomLevel] || 240
+})
+
+// 根据缩放级别生成时间轴小时刻度：小时视图显示每小时，其余显示每4小时等
+const hourTicks = computed(() => {
+  if (props.zoomLevel === 0) {
+    return Array.from({ length: 24 }, (_, i) => i)
+  }
+  return [0, 4, 8, 12, 16, 20]
 })
 
 // 存储展开状态
@@ -773,6 +782,21 @@ const formatDateTime = (dateStr) => {
     padding: 2px 4px;
     font-size: 10px;
     color: #909399;
+    span {
+      flex-shrink: 0;
+    }
+  }
+  &.is-hour-view .hour-labels {
+    justify-content: space-between;
+    padding: 1px 2px;
+    font-size: 9px;
+    span {
+      flex: 1 1 0;
+      min-width: 0;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
 }
 

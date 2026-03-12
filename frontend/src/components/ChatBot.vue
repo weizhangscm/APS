@@ -1,6 +1,6 @@
 <template>
   <div class="chatbot-wrapper">
-    <!-- 浮动按钮：AI Pilot -->
+    <!-- 浮动按钮：WE APS / AI Agent -->
     <el-button
       class="chatbot-float-btn"
       type="primary"
@@ -9,8 +9,8 @@
       :title="t('chatbot.open')"
     >
       <span class="ai-pilot-mark" aria-hidden="true">
-        <span class="ai-pilot-mark__ai">AI</span>
-        <span class="ai-pilot-mark__pilot">Pilot</span>
+        <span class="ai-pilot-mark__top">WE APS</span>
+        <span class="ai-pilot-mark__bottom">AI Agent</span>
       </span>
     </el-button>
 
@@ -23,6 +23,7 @@
       :with-header="true"
       :show-close="false"
       :modal="false"
+      :lock-scroll="false"
       modal-penetrable
       modal-class="chatbot-drawer-overlay"
     >
@@ -125,12 +126,14 @@
 </template>
 
 <script setup>
-import { ref, nextTick, watch } from 'vue'
+import { ref, nextTick, watch, onUnmounted } from 'vue'
 import { Cpu, Close, User, Promotion, Loading, ArrowLeft } from '@element-plus/icons-vue'
 import { useI18nStore } from '@/stores/i18n'
+import { useSchedulingStore } from '@/stores/scheduling'
 import { chatbotApi } from '@/api'
 
 const i18nStore = useI18nStore()
+const schedulingStore = useSchedulingStore()
 const t = (key) => i18nStore.t(key)
 
 function getLocale() {
@@ -202,6 +205,10 @@ async function sendMessage() {
       action_result: actionResult,
       action_type: actionType
     })
+    // We Agent 运行启发式排程或保存计划成功后，自动刷新详细计划表页面
+    if (actionResult?.success && (actionType === 'run_heuristic' || actionType === 'save_plan')) {
+      schedulingStore.requestScheduleRefresh()
+    }
   } catch (err) {
     const msg = err.response?.data?.detail ?? err.message ?? t('chatbot.sendFailed')
     messages.value.push({
@@ -227,14 +234,24 @@ function goBackToInitial() {
   conversationId.value = `chat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 }
 
+const BODY_DRAWER_OPEN_CLASS = 'we-agent-drawer-open'
+const DRAWER_WIDTH_PX = 400
+
 watch(drawerVisible, (visible) => {
   if (visible) {
+    document.body.classList.add(BODY_DRAWER_OPEN_CLASS)
     nextTick(() => {
       if (messagesRef.value) {
         messagesRef.value.scrollTop = messagesRef.value.scrollHeight
       }
     })
+  } else {
+    document.body.classList.remove(BODY_DRAWER_OPEN_CLASS)
   }
+})
+
+onUnmounted(() => {
+  document.body.classList.remove(BODY_DRAWER_OPEN_CLASS)
 })
 </script>
 
@@ -440,21 +457,24 @@ watch(drawerVisible, (visible) => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  line-height: 1;
+  line-height: 1.15;
   user-select: none;
+  gap: 0;
 }
 
-.ai-pilot-mark__ai {
+.ai-pilot-mark__top {
   font-weight: 800;
-  font-size: 14px;
-  letter-spacing: 0.06em;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
-.ai-pilot-mark__pilot {
+.ai-pilot-mark__bottom {
   font-weight: 700;
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  font-size: 9px;
+  letter-spacing: 0.03em;
   opacity: 0.95;
+  white-space: nowrap;
 }
 
 .chatbot-drawer :deep(.el-drawer__body) {
@@ -547,5 +567,13 @@ watch(drawerVisible, (visible) => {
 /* 遮罩不阻挡主界面点击，抽屉打开时仍可操作 APS */
 .chatbot-drawer-overlay {
   pointer-events: none !important;
+}
+
+/* 打开 WE APS AI Agent 时为主页面增加横向滚动条，避免内容被遮挡 */
+body.we-agent-drawer-open {
+  overflow-x: auto;
+}
+body.we-agent-drawer-open #app {
+  min-width: calc(100vw + 400px);
 }
 </style>

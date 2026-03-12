@@ -28,6 +28,12 @@
 - 平均提前期
 - 每日产能负荷图表
 
+### AI 智能助手 ⭐ 新功能
+- **自然语言对话**: 使用 Claude AI 进行智能对话
+- **智能查询**: 自然语言查询延误订单、资源状态等
+- **智能排程**: 通过对话触发排程算法
+- **多轮对话**: 支持上下文记忆的多轮交互
+
 ## 技术栈
 
 | 层级 | 技术 |
@@ -39,6 +45,7 @@
 | 状态管理 | Pinia |
 | 后端框架 | Python FastAPI |
 | 数据库 | SQLite + SQLAlchemy |
+| AI 助手 | Google Gemini 3 Pro Preview |
 
 ## 快速开始
 
@@ -83,6 +90,39 @@ npm run dev
 7. **访问系统**
 
 打开浏览器访问: http://localhost:3000
+
+### Claude AI 配置（可选）
+
+系统已集成 Google Gemini AI 助手，配置已完成，可直接使用！
+
+1. **查看配置文档**
+```bash
+# 详细配置指南
+cat GEMINI_API_CONFIG.md
+```
+
+2. **测试 API 连接**（可选）
+```bash
+cd backend
+python test_gemini_api.py         # 基础测试
+python test_gemini_complete.py    # 完整测试（5个测试场景）
+```
+
+3. **当前配置**
+- ✅ API 端点: `https://xiaoai.plus/v1`
+- ✅ 模型: `gemini-3-pro-preview`
+- ✅ 状态: 已测试，所有功能正常
+
+4. **如需更换 API Key**
+
+创建 `backend/.env` 文件：
+```env
+OPENAI_API_KEY=你的API密钥
+OPENAI_BASE_URL=https://xiaoai.plus/v1
+OPENAI_MODEL=gemini-3-pro-preview
+```
+
+📖 **详细文档**: [Gemini API 配置指南](./GEMINI_API_CONFIG.md)
 
 ## 项目结构
 
@@ -132,6 +172,7 @@ APS Test/
 | `/api/scheduling/run` | POST | 执行排程 |
 | `/api/scheduling/gantt-data` | GET | 获取甘特图数据 |
 | `/api/scheduling/kpi` | GET | 获取 KPI 数据 |
+| `/api/chatbot/chat` | POST | AI 智能助手对话 ⭐ |
 
 ## 使用说明
 
@@ -166,6 +207,14 @@ APS Test/
 - 资源利用率
 - 订单准时率
 - 产能负荷分布
+
+### 6. 使用 AI 助手 ⭐
+
+在聊天界面与 AI 助手对话:
+- "查询延误的订单"
+- "帮我运行排程"
+- "什么是瓶颈资源？"
+- 支持自然语言交互，智能理解意图
 
 ## 数据模型
 

@@ -1,16 +1,11 @@
 """
 Agent 代理服务：执行排程引擎动作。
-
-支持的动作类型：
-- find_delayed_orders: 查找延误订单 engine.get_delayed_orders()
-- run_heuristic: 运行启发式排程 engine.auto_plan()
-- cancel_plan: 取消计划 engine.cancel_plan()
-- save_plan: 保存计划 engine.save_plan()
-
-本模块为纯动作执行器，由 LLM 服务通过 Function Calling 调用。
+按《API交互约定》解析 resource_scope、order_filter 等特殊值。
 """
 import re
+import yaml
 import logging
+from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, Any, List
 
@@ -18,6 +13,48 @@ from .. import schemas, models
 from ..scheduler.engine import SchedulingEngine
 
 logger = logging.getLogger(__name__)
+
+
+def _load_agent_config() -> Dict[str, Any]:
+    """加载 agent_config.yaml"""
+    path = Path(__file__).parent.parent / "agent_config.yaml"
+    if not path.exists():
+        return {"special_values": {}}
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return yaml.safe_load(f)
+    except Exception as e:
+        logger.warning("Failed to load agent_config: %s", e)
+        return {"special_values": {}}
+
+
+def _resolve_resource_scope(resource_scope: Optional[str], resource_names: Optional[List[str]], db) -> Optional[List[int]]:
+    """解析 resource_scope：all -> 全部资源 ID；selected -> 按 resource_names 解析。"""
+    if resource_scope == "all":
+        resources = db.query(models.Resource).all()
+        return [r.id for r in resources]
+    if resource_scope == "selected" and resource_names:
+        return _resolve_resource_names_to_ids(resource_names, db)
+    if resource_names:
+        return _resolve_resource_names_to_ids(resource_names, db)
+    return None
+
+
+def _resolve_order_filter(
+    order_filter: Optional[str],
+    order_numbers: Optional[List[str]],
+    display_start: Optional[str],
+    display_end: Optional[str],
+    db,
+) -> Dict[str, Any]:
+    """解析 order_filter，返回 filter_type 与 order_ids（specified 时）。"""
+    result = {"filter_type": order_filter or "in_display_range", "order_ids": None}
+    if order_filter == "specified" and order_numbers:
+        orders = db.query(models.ProductionOrder).filter(
+            models.ProductionOrder.order_number.in_(order_numbers)
+        ).all()
+        result["order_ids"] = [o.id for o in orders]
+    return result
 
 
 def _parse_month_day(s: str) -> Optional[str]:
@@ -135,54 +172,61 @@ def execute_action(
             }
         
         if action_type == "run_heuristic":
-            # 解析资源名称
+            resource_scope = params.get("resource_scope")
             resource_names = params.get("resource_names") or []
-            resource_ids = _resolve_resource_names_to_ids(resource_names, db) if resource_names else None
-            
-            # 获取参数
+            resource_ids = _resolve_resource_scope(resource_scope, resource_names, db)
+
+            order_filter = params.get("order_filter")
+            order_numbers = params.get("order_numbers")
             display_start = params.get("display_start_date")
             display_end = params.get("display_end_date")
+            order_filter_result = _resolve_order_filter(order_filter, order_numbers, display_start, display_end, db)
+
             expected_date_value = params.get("expected_date_value")
             order_internal_relation = params.get("order_internal_relation") or "始终考虑"
-            
-            # 构建启发式配置
+            sorting_rule = params.get("sorting_rule") or "订单优先级"
+            planning_direction = params.get("planning_direction") or "向前"
+
             optimizer_config = {
                 "finite_capacity": True,
                 "resolve_backlog": True,
                 "resolve_overload": True,
                 "preserve_scheduled": True,
-                "sorting_rule": "订单优先级",
+                "sorting_rule": sorting_rule,
                 "planning_mode": "查找槽位",
-                "planning_direction": "向前",
+                "planning_direction": planning_direction,
                 "expected_date": "指定日期" if expected_date_value else "当前日期",
                 "order_internal_relation": order_internal_relation,
                 "sub_planning_mode": "根据调度模式调度相关操作",
                 "error_handling": "立即终止",
                 "planning_horizon": 90,
-                "schedule_selected_resources_only": True,
+                "schedule_selected_resources_only": bool(resource_ids),
+                "order_filter_type": order_filter_result["filter_type"],
             }
-            
             if expected_date_value:
                 optimizer_config["expected_date_value"] = expected_date_value
             if display_start:
                 optimizer_config["display_start_date"] = display_start
             if display_end:
                 optimizer_config["display_end_date"] = display_end
-            
+
             request = schemas.AutoPlanRequest(
                 plan_type="heuristic",
                 heuristic_id="stable_forward",
                 optimizer_config=optimizer_config,
                 resource_ids=resource_ids,
+                order_ids=order_filter_result.get("order_ids"),
             )
-            
             result = engine.auto_plan(request)
             result_dict = dict(result) if isinstance(result, dict) else {"result": result}
             result_dict["success"] = True
             return result_dict
         
         if action_type == "cancel_plan":
+            resource_scope = params.get("resource_scope")
             resource_ids = params.get("resource_ids")
+            if resource_scope == "all":
+                resource_ids = _resolve_resource_scope("all", None, db)
             product_ids = params.get("product_ids")
             result = engine.cancel_plan(resource_ids=resource_ids, product_ids=product_ids)
             if isinstance(result, dict):
@@ -191,7 +235,10 @@ def execute_action(
             return {"success": True, "message": "取消计划已执行", "result": result}
         
         if action_type == "save_plan":
+            resource_scope = params.get("resource_scope")
             resource_ids = params.get("resource_ids")
+            if resource_scope == "all":
+                resource_ids = _resolve_resource_scope("all", None, db)
             product_ids = params.get("product_ids")
             result = engine.save_plan(resource_ids=resource_ids, product_ids=product_ids)
             if isinstance(result, dict):

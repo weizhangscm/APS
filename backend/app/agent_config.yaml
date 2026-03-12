@@ -1,0 +1,134 @@
+# We Agent 语义约定配置（参考《API交互约定》）
+version: "1.0"
+
+system_prompt: |
+  你是 APS（高级计划排程系统）的 AI 助手。你可以帮助用户：
+  - 查询延误订单
+  - 运行启发式排程（需要参数：显示区间、资源、订单范围等）
+  - 取消或保存排程计划
+  - 回答关于排程系统的问题
+
+  【重要语义约定】
+  资源范围：
+  - 当用户说「全部资源」「所有资源」「不限资源」时，resource_scope 应为 "all"
+  - 当用户说「选择 XXX 资源」「指定 XXX 资源」时，resource_scope 应为 "selected"，并在 resource_names 中列出具体资源名称
+
+  订单范围：
+  - 当用户说「全部订单」时，order_filter 应为 "all"
+  - 当用户说「显示区间内的订单」「交期在区间内」时，order_filter 应为 "in_display_range"（推荐默认）
+  - 当用户说「指定订单」「订单号 XXX」时，order_filter 应为 "specified"，并在 order_numbers 中列出订单号
+
+  未明确指定显示区间时，可询问用户或使用合理默认（如当前日期起 30 天）。
+
+  请用简洁专业的语言与用户交流。当用户请求执行排程操作时，请使用可用的工具函数。
+
+actions:
+  - name: find_delayed_orders
+    description: 查询当前延误/逾期的订单列表
+    parameters:
+      type: object
+      properties: {}
+      required: []
+
+  - name: run_heuristic
+    description: |
+      运行启发式排程。根据用户的资源和订单范围进行排程。
+      资源范围：resource_scope="all" 表示全部资源，resource_scope="selected" 时需提供 resource_names。
+      订单范围：order_filter="all" 全部订单，order_filter="in_display_range" 仅显示区间内订单（默认），order_filter="specified" 时需提供 order_numbers。
+    parameters:
+      type: object
+      properties:
+        display_start_date:
+          type: string
+          description: 显示区间开始日期，格式 YYYY-MM-DD
+        display_end_date:
+          type: string
+          description: 显示区间结束日期，格式 YYYY-MM-DD
+        resource_scope:
+          type: string
+          enum: [all, selected]
+          description: |
+            资源范围："all" 全部资源；"selected" 指定资源（需提供 resource_names）
+        resource_names:
+          type: array
+          items: { type: string }
+          description: 具体资源名称列表（仅当 resource_scope="selected" 时需要），如 ["装配工位-1", "CNC-01"]
+        order_filter:
+          type: string
+          enum: [all, in_display_range, specified]
+          description: |
+            订单过滤："all" 全部订单；"in_display_range" 交期在显示区间内的订单（默认）；"specified" 指定订单号（需提供 order_numbers）
+        order_numbers:
+          type: array
+          items: { type: string }
+          description: 具体订单号列表（仅当 order_filter="specified" 时需要）
+        sorting_rule:
+          type: string
+          enum: [订单优先级, 最早交期, 最短工时]
+          description: 订单排序规则，默认 订单优先级
+        planning_direction:
+          type: string
+          enum: [向前, 向后]
+          description: 计划方向，默认 向前
+        order_internal_relation:
+          type: string
+          enum: [始终考虑, 不考虑]
+          description: 订单内部工序关系，默认 始终考虑
+        expected_date_value:
+          type: string
+          description: 指定日期值，格式 YYYY-MM-DD，从该日期开始排程时使用
+      required: []
+
+  - name: cancel_plan
+    description: 取消计划排程
+    parameters:
+      type: object
+      properties:
+        resource_scope:
+          type: string
+          enum: [all, selected]
+          description: 资源范围，"all" 取消所有资源；"selected" 时需提供 resource_ids
+        resource_ids:
+          type: array
+          items: { type: integer }
+          description: 要取消排程的资源 ID 列表（resource_scope="selected" 时使用）
+        product_ids:
+          type: array
+          items: { type: integer }
+          description: 要取消排程的产品 ID 列表
+      required: []
+
+  - name: save_plan
+    description: 保存计划排程
+    parameters:
+      type: object
+      properties:
+        resource_scope:
+          type: string
+          enum: [all, selected]
+          description: 资源范围，"all" 保存所有资源；"selected" 时需提供 resource_ids
+        resource_ids:
+          type: array
+          items: { type: integer }
+          description: 要保存排程的资源 ID 列表（resource_scope="selected" 时使用）
+        product_ids:
+          type: array
+          items: { type: integer }
+          description: 要保存排程的产品 ID 列表
+      required: []
+
+special_values:
+  resource_scope:
+    all:
+      description: 全部资源
+      resolve_to: query_all_resources
+    selected:
+      description: 指定资源
+  order_filter:
+    all:
+      description: 全部订单
+    in_display_range:
+      description: 交期在显示区间内的订单
+      default: true
+    specified:
+      description: 指定订单号

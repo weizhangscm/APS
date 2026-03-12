@@ -13,6 +13,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
   const currentViewType = ref('order')
   const hasUnsavedChanges = ref(false)  // 是否有未保存的排程更改
   const planLog = ref(null)  // 最近一次自动计划/启发式的结果，用于「日志」展示（含错误详情）
+  const scheduleRefreshTrigger = ref(0)  // 外部触发刷新（如 We Agent 运行启发式后），详细计划表监听并刷新
 
   // Actions
   async function fetchGanttData(viewType = 'order', startDate = null, endDate = null) {
@@ -270,6 +271,11 @@ export const useSchedulingStore = defineStore('scheduling', () => {
     }
   }
 
+  // 请求详细计划表刷新（如 We Agent 运行启发式后调用，DSView 监听 scheduleRefreshTrigger 后执行 loadGanttData）
+  function requestScheduleRefresh() {
+    scheduleRefreshTrigger.value = Date.now()
+  }
+
   // 获取缓存状态
   async function getCacheStatus() {
     try {
@@ -293,7 +299,9 @@ export const useSchedulingStore = defineStore('scheduling', () => {
     currentViewType,
     hasUnsavedChanges,
     planLog,
+    scheduleRefreshTrigger,
     // Actions
+    requestScheduleRefresh,
     fetchGanttData,
     fetchProductGanttData,
     fetchUtilizationData,

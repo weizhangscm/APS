@@ -699,7 +699,7 @@ const strategyForm = reactive({
   planningDirection: '向前',           // 计划方向
   expectedDate: '当前日期',            // 期望日期
   expectedDateValue: null,            // 指定日期时的具体日期（YYYY-MM-DD）
-  orderInternalRelation: '不考虑',     // 订单内部关系
+  orderInternalRelation: '始终考虑',   // 订单内部关系
   subPlanningMode: '根据调度模式调度相关操作',  // 子计划模式
   errorHandling: '立即终止'            // 计划出错的操作
 })
@@ -1261,6 +1261,14 @@ watch(currentZoom, async () => {
     await schedulingStore.fetchUtilizationData(selectedResources.value, startDate, endDate, currentZoom.value)
   }
 })
+
+// ===== 监听 We Agent 运行启发式后的刷新请求（自动刷新详细计划表）=====
+watch(
+  () => schedulingStore.scheduleRefreshTrigger,
+  (trigger) => {
+    if (trigger > 0) loadGanttData()
+  }
+)
 
 // ===== 监听筛选条件变化，自动保存并同步到共享store =====
 watch(

@@ -422,6 +422,7 @@ class AutoPlanRequest(BaseModel):
     heuristic_id: Optional[str] = None
     optimizer_config: Optional[dict] = None
     resource_ids: Optional[List[int]] = None
+    order_ids: Optional[List[int]] = None  # 订单过滤：指定订单 ID 列表（order_filter=specified 时）
 
 
 class CancelPlanRequest(BaseModel):

@@ -14,6 +14,7 @@
             v-for="day in timeAxis" 
             :key="day.date" 
             class="time-slot"
+            :class="{ 'is-hour-view': props.zoomLevel === 0 }"
             :style="{ width: `${dayWidth}px` }"
           >
             <div class="day-label">{{ day.date }}</div>
@@ -48,7 +49,7 @@
       
       <!-- 右侧图表（可双向滚动） -->
       <div class="right-content" ref="rightContentRef" @scroll="handleRightScroll">
-        <div class="chart-rows">
+        <div class="chart-rows" :style="{ minWidth: totalChartWidth ? totalChartWidth + 'px' : undefined }">
           <div 
             v-for="resource in chartData" 
             :key="resource.resource_id" 
@@ -161,8 +162,8 @@ const dayWidth = computed(() => {
 // 根据缩放级别生成小时标签
 const hourLabels = computed(() => {
   switch (props.zoomLevel) {
-    case 0: // 小时视图 - 显示每小时
-      return ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']
+    case 0: // 小时视图 - 显示每小时刻度
+      return Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`)
     case 1: // 4小时视图 - 显示每4小时
       return ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']
     case 2: // 天视图 - 显示每8小时
@@ -202,6 +203,12 @@ const timeAxis = computed(() => {
 // 图表数据 - 直接使用传入的数据
 const chartData = computed(() => {
   return props.data || []
+})
+
+// 图表内容总宽度：与时间轴一致，按显示区间(dateRange)覆盖完整范围，避免无占用时横向只能滚到最后有数据的日期
+const totalChartWidth = computed(() => {
+  const days = timeAxis.value.length
+  return days > 0 ? days * dayWidth.value : 0
 })
 
 // 计算当前时间线位置
@@ -358,6 +365,20 @@ onMounted(() => {
     padding: 2px 4px;
     font-size: 11px;
     color: #909399;
+    span {
+      flex-shrink: 0;
+    }
+  }
+  &.is-hour-view .hour-labels {
+    padding: 1px 2px;
+    font-size: 9px;
+    span {
+      flex: 1 1 0;
+      min-width: 0;
+      text-align: center;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
   }
 }
 

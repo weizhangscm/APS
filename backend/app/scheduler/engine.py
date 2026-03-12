@@ -534,6 +534,26 @@ class SchedulingEngine:
                 "scheduled_operations": result.scheduled_operations
             }
     
+    def _filter_orders_by_criteria(
+        self,
+        query,
+        order_filter_type: Optional[str],
+        order_ids: Optional[List[int]],
+        display_start: Optional[datetime],
+        display_end: Optional[datetime]
+    ):
+        """统一订单过滤：按 order_filter_type 与 order_ids 过滤查询。"""
+        if order_filter_type == "specified" and order_ids:
+            return query.filter(models.ProductionOrder.id.in_(order_ids))
+        if order_filter_type == "in_display_range" and display_start and display_end:
+            return query.filter(
+                models.ProductionOrder.due_date.isnot(None),
+                models.ProductionOrder.due_date >= display_start,
+                models.ProductionOrder.due_date <= display_end
+            )
+        # "all" 或未指定：不过滤
+        return query
+
     def _run_stable_forward_scheduling(self, request: schemas.AutoPlanRequest):
         """
         执行稳定向前计划 (Stable Forward Scheduling)
@@ -582,10 +602,11 @@ class SchedulingEngine:
         planning_mode = config.get('planning_mode', '查找槽位')
         planning_direction = config.get('planning_direction', '向前')
         expected_date = config.get('expected_date', '当前日期')
-        order_internal_relation = config.get('order_internal_relation', '不考虑')
+        order_internal_relation = config.get('order_internal_relation', '始终考虑')
         sub_planning_mode = config.get('sub_planning_mode', '根据调度模式调度相关操作')
         error_handling = config.get('error_handling', '立即终止')
         schedule_selected_resources_only = config.get('schedule_selected_resources_only', True)
+        order_filter_type = config.get('order_filter_type', 'in_display_range')
         
         # 根据排序规则映射到算法参数
         sorting_rule_mapping = {
@@ -708,22 +729,19 @@ class SchedulingEngine:
                 models.Operation.resource_id.in_(request.resource_ids)
             ).all()
             
-            # 有显示区间时，只排程交期在显示区间内的订单（不论「订单内部关系」为不考虑或始终考虑）
-            if display_start and display_end:
+            # 按 order_filter_type 过滤工序所属订单
+            if order_filter_type == "specified" and request.order_ids:
+                target_operations = [op for op in target_operations if op.order_id in request.order_ids]
+            elif order_filter_type == "in_display_range" and display_start and display_end:
                 filtered_operations = []
                 for op in target_operations:
                     order = self.db.query(models.ProductionOrder).filter(
                         models.ProductionOrder.id == op.order_id
                     ).first()
-                    if order:
-                        # Only include operations with due_date within display range
-                        due_date_in_range = (
-                            order.due_date and 
-                            display_start <= order.due_date <= display_end
-                        )
-                        if due_date_in_range:
-                            filtered_operations.append(op)
+                    if order and order.due_date and display_start <= order.due_date <= display_end:
+                        filtered_operations.append(op)
                 target_operations = filtered_operations
+            # order_filter_type == "all" 时不按交期过滤
             
             target_operation_ids = [op.id for op in target_operations]
             
@@ -783,6 +801,10 @@ class SchedulingEngine:
                 if all_affected_ids:
                     query = query.filter(models.ProductionOrder.id.in_(all_affected_ids))
         
+        # 统一订单过滤（API交互约定）
+        query = self._filter_orders_by_criteria(
+            query, order_filter_type, getattr(request, 'order_ids', None), display_start, display_end
+        )
         orders = query.all()
         
         if not orders:
@@ -2264,39 +2286,38 @@ class SchedulingEngine:
                             'run_time': op.run_time
                         })
             
-            # 按时间槽计算利用率
+            # 按实际占用时间段生成条形图：合并重叠工序区间，每条与资源甘特占用时间一致
+            intervals = [(op['start'], op['end']) for op in all_operations]
+            intervals.sort(key=lambda x: x[0])
+            merged = []
+            for s, e in intervals:
+                if merged and s <= merged[-1][1]:
+                    merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+                else:
+                    merged.append((s, e))
             time_slots = []
-            current = start_date
-            while current < end_date:
-                slot_end = current + timedelta(hours=slot_hours)
-                
-                # 计算该时间段内的工时（重叠就累加）
-                total_hours = 0
+            for seg_start, seg_end in merged:
+                clip_start = max(seg_start, start_date)
+                clip_end = min(seg_end, end_date)
+                if clip_end <= clip_start:
+                    continue
+                seg_hours = (clip_end - clip_start).total_seconds() / 3600
+                total_used = 0
                 for op_data in all_operations:
-                    op_start = op_data['start']
-                    op_end = op_data['end']
-                    
-                    # 检查是否与时间槽重叠
-                    if op_start < slot_end and op_end > current:
-                        # 计算重叠部分
-                        overlap_start = max(op_start, current)
-                        overlap_end = min(op_end, slot_end)
-                        if overlap_end > overlap_start:
-                            total_hours += (overlap_end - overlap_start).total_seconds() / 3600
-                
-                # DS「资源利用率视图」的“每日产能”在天视图应与启发式一致（无班次=capacity_per_day；有班次=班次汇总）
-                # 其他缩放级别保持原逻辑：分母=时间槽大小（小时）
-                slot_capacity_hours = production_hours_per_day if zoom_level == 2 else slot_hours
-                utilization = (total_hours / slot_capacity_hours) if slot_capacity_hours > 0 else 0
-                
+                    op_start, op_end = op_data['start'], op_data['end']
+                    if op_start < clip_end and op_end > clip_start:
+                        o_s = max(op_start, clip_start)
+                        o_e = min(op_end, clip_end)
+                        if o_e > o_s:
+                            total_used += (o_e - o_s).total_seconds() / 3600
+                utilization = (total_used / seg_hours) if seg_hours > 0 else 0
                 time_slots.append({
-                    "start": current.strftime("%Y-%m-%d %H:%M"),
-                    "end": slot_end.strftime("%Y-%m-%d %H:%M"),
-                    "utilization": round(utilization, 2)  # 不限制上限，真实反映超载情况
+                    "start": clip_start.strftime("%Y-%m-%d %H:%M"),
+                    "end": clip_end.strftime("%Y-%m-%d %H:%M"),
+                    "utilization": round(utilization, 2)
                 })
-                
-                current = slot_end
-            
+            time_slots.sort(key=lambda x: x["start"])
+
             result.append({
                 "resource_id": resource.id,
                 "resource_name": resource.name,
