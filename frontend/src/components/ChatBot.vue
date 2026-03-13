@@ -166,9 +166,26 @@ const quickPrompts = [
   {
     icon: '⚡',
     labelKey: 'chatbot.quickHeuristic',
-    text: '显示区间 3.9-3.15，资源选择 装配工位-1，指定日期 3.9，订单内部关系 始终考虑，然后运行启发式',
-    // Use resource code to avoid language-dependent name matching
-    textEn: 'Display range 3.9-3.15, resource A001, specified date 3.9, order internal relation always consider, then run heuristic scheduling'
+    text: '请执行启发式排程',
+    textEn: 'Run heuristic scheduling'
+  },
+  {
+    icon: '📊',
+    labelKey: 'chatbot.quickDemo2',
+    text: '对比 EDD 与 SPT 排程',
+    textEn: 'Compare EDD vs SPT scheduling'
+  },
+  {
+    icon: '⚡',
+    labelKey: 'chatbot.quickDemo4',
+    text: 'CNC-01 故障事件',
+    textEn: 'CNC-01 Breakdown Event'
+  },
+  {
+    icon: '✓',
+    labelKey: 'chatbot.quickDemo5',
+    text: '计划员确认方案 C',
+    textEn: 'Planner confirms Scenario C'
   }
 ]
 

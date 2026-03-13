@@ -1,16 +1,24 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, date
 from typing import Optional, List
 import logging
 
 from ..database import get_db
 
 
-def _normalize_same_day_range(start_date: Optional[datetime], end_date: Optional[datetime]):
-    """当显示区间为同一天时，将 end_date 设为该日 23:59:59，使时间区间为 00:00 - 23:59:59。"""
-    if start_date is not None and end_date is not None and start_date.date() == end_date.date():
-        end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+def _normalize_same_day_range(start_date, end_date):
+    if start_date is not None and end_date is not None:
+ 
+        if isinstance(start_date, date) and not isinstance(start_date, datetime):
+            start_date = datetime.combine(start_date, datetime.min.time())
+ 
+        if isinstance(end_date, date) and not isinstance(end_date, datetime):
+            end_date = datetime.combine(end_date, datetime.min.time())
+ 
+        if start_date.date() == end_date.date():
+            end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
+ 
     return start_date, end_date
 from .. import schemas
 from ..scheduler.engine import SchedulingEngine
@@ -83,8 +91,8 @@ def reschedule_operation(
 @router.get("/gantt-data", response_model=schemas.GanttData)
 def get_gantt_data(
     view_type: str = Query("order", description="视图类型: order(订单视图) 或 resource(资源视图)"),
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -254,8 +262,8 @@ def get_cache_status():
 @router.get("/utilization")
 def get_utilization_data(
     resource_ids: Optional[str] = Query(None, description="资源ID列表，逗号分隔"),
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
+    start_date: Optional[date] = None,
+    end_date: Optional[date] = None,
     zoom_level: int = Query(1, description="缩放级别: 0=小时, 1=4小时, 2=天, 3=周, 4=月"),
     db: Session = Depends(get_db)
 ):
