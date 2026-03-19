@@ -22,12 +22,46 @@ export default {
   user: {
     profile: '个人信息',
     changePassword: '修改密码',
+    databaseManagement: '数据库管理',
     logout: '退出登录',
     admin: '管理员',
     regularUser: '普通用户',
     confirmLogout: '确定要退出登录吗？',
     logoutSuccess: '已退出登录',
     profileComingSoon: '个人信息功能开发中'
+  },
+
+  dataManagement: {
+    title: '数据库管理',
+    clearAll: '清空全部数据',
+    clearSelected: '清空选中数据',
+    warningTitle: '危险操作',
+    warningDesc: '清空数据将不可恢复，请确认当前环境允许执行此操作。',
+    confirmTitle: '确认清空',
+    confirmSelected: '确定要清空选中的数据吗？该操作不可恢复。',
+    confirmAll: '确定要清空全部数据吗？该操作不可恢复。',
+    clearSuccess: '清空成功',
+    lastResult: '最近一次结果',
+    workCenters: '工作中心',
+    workCentersDesc: 'work_centers（清空会级联清空资源/班次等依赖）',
+    resources: '资源',
+    resourcesDesc: 'resources（清空会级联清空班次/矩阵等依赖）',
+    shifts: '班次',
+    shiftsDesc: 'shifts',
+    products: '产品',
+    productsDesc: 'products（清空会级联清空工艺路线/订单等依赖）',
+    routings: '工艺路线',
+    routingsDesc: 'routings',
+    routingOperations: '工艺路线工序',
+    routingOperationsDesc: 'routing_operations',
+    setupGroups: '切换组',
+    setupGroupsDesc: 'setup_groups',
+    productSetupGroups: '产品-切换组分配',
+    productSetupGroupsDesc: 'product_setup_groups',
+    setupMatrix: '切换矩阵',
+    setupMatrixDesc: 'setup_matrix',
+    productionOrders: '生产/计划订单',
+    productionOrdersDesc: 'production_orders（清空会级联清空工序 operations）'
   },
 
   // 密码修改
@@ -64,7 +98,12 @@ export default {
     no: '否',
     startDate: '开始日期',
     endDate: '结束日期',
-    to: '至'
+    to: '至',
+    downloadTemplate: '下载模板',
+    export: '导出',
+    import: '导入',
+    created: '新增',
+    updated: '更新'
   },
 
   // 登录
@@ -252,6 +291,14 @@ export default {
     discardChangesFailed: '丢弃计划失败',
     replanSuccess: '重新计划成功',
     replanFailed: '重新计划失败',
+    resourceUnavailable: '资源不可用',
+    cannotBeforePrevOperation: '不能早于前序工序结束时间',
+    saveOrDiscardFirst: '请先保存或丢弃当前计划后再调整',
+    operationMissingRuntime: '工序运行时间未维护，无法调整排程',
+    operationUnscheduledForDrag: '工序尚未排程，请先通过启发式或自动计划生成排程后再拖拽',
+    resourceUnavailable: '资源不可用',
+    cannotBeforePrevOperation: '不能早于前序工序结束时间',
+    saveOrDiscardFirst: '请先保存或丢弃当前计划后再调整',
     // 后端返回消息的原文（用于前端按语言展示）
     savedOrdersOperations: '已保存 {orders} 个订单的 {ops} 道工序排程',
     cancelledOrdersOperations: '已取消 {orders} 个订单的 {ops} 道工序排程',
@@ -670,11 +717,11 @@ export default {
 
   // 聊天机器人
   chatbot: {
-    title: 'WE APS AI Agent',
-    pilotName: 'WE APS AI Agent',
-    open: '打开 WE APS AI Agent',
+    title: 'We APS AI Agent',
+    pilotName: 'We APS AI Agent',
+    open: '打开 We APS AI Agent',
     back: '返回',
-    heroTitle: 'WE APS AI Agent',
+    heroTitle: 'We APS AI Agent',
     heroSubtitle: 'AI-Native排程助手，用自然语言操作APS系统',
     quickDelayedOrders: '哪些订单延误了？',
     quickHeuristic: '执行启发式排程',

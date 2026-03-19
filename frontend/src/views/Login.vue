@@ -10,7 +10,7 @@
       <div class="login-header">
         <div class="logo">
           <div class="logo-icon we-logo">
-            <span class="we-text">We</span>
+            <img class="we-logo-img" src="@/assets/we-logo.png" alt="We" />
           </div>
           <h1>{{ t('login.title') }}</h1>
         </div>
@@ -239,19 +239,19 @@ const handleLogin = async () => {
     .logo-icon {
       width: 56px;
       height: 56px;
-      background: #0099cc;
+      background: transparent;
       border-radius: 12px;
       display: flex;
       align-items: center;
       justify-content: center;
       
       &.we-logo {
-        .we-text {
-          font-family: 'Arial', sans-serif;
-          font-size: 26px;
-          font-weight: 700;
-          color: #fff;
-          letter-spacing: -1px;
+        overflow: hidden;
+        .we-logo-img {
+          width: 56px;
+          height: 56px;
+          display: block;
+          object-fit: cover;
         }
       }
     }

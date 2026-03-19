@@ -93,13 +93,14 @@
               </div>
             </template>
             
-            <!-- 子任务条：单个条形图 -->
+            <!-- 子任务条：单个条形图（可拖拽） -->
             <div 
               v-else-if="!item.isGroup && item.start_date && item.end_date"
               class="task-bar"
-              :class="getTaskClass(item)"
-              :style="getTaskStyle(item)"
+              :class="[getTaskClass(item), { 'is-draggable': canDrag(item), 'is-dragging': draggingItem?.id === item.id }]"
+              :style="getTaskBarStyle(item)"
               :title="`${item.text}\n开始: ${formatDateTime(item.start_date)}\n结束: ${formatDateTime(item.end_date)}`"
+              @mousedown.prevent="canDrag(item) && onTaskBarMouseDown($event, item)"
             >
             </div>
           </div>
@@ -113,6 +114,8 @@
 import { ref, computed, reactive } from 'vue'
 import { Folder, Document, Plus, Minus } from '@element-plus/icons-vue'
 import { useI18nStore } from '@/stores/i18n'
+
+const emit = defineEmits(['task-dragged'])
 
 const i18nStore = useI18nStore()
 const t = (key) => i18nStore.t(key)
@@ -137,7 +140,100 @@ const timeAxisRef = ref(null)
 const leftContentRef = ref(null)
 const rightContentRef = ref(null)
 
+// 拖拽状态：当前拖拽的工序项、预览位置（px）
+const draggingItem = ref(null)
+const dragPreviewLeft = ref(null)
+
 let isScrolling = false
+
+// 是否允许拖拽：子任务、有 operation_id、非生产订单、非切换准备条
+function canDrag(item) {
+  if (!item || item.isGroup) return false
+  if (!item.operation_id) return false
+  if (item.order_type === 'production' || (item.text && item.text.startsWith('[生产]'))) return false
+  if (item.task_type === 'changeover' || item.status === 'changeover') return false
+  // 运行时间缺失的工序视为主数据不完整，禁止拖拽（避免后端报错）
+  if (item.work_hours == null || item.work_hours < 0) return false
+  return true
+}
+
+// 将时间取整到 15 分钟
+function roundTo15Min(date) {
+  const ms = date.getTime()
+  const rounded = Math.round(ms / (15 * 60 * 1000)) * (15 * 60 * 1000)
+  return new Date(rounded)
+}
+
+// 将像素偏移（相对时间轴起点）转为日期
+function pixelOffsetToDate(pixelOffset) {
+  if (timeAxis.value.length === 0) return null
+  const firstDay = timeAxis.value[0].date
+  const days = pixelOffset / dayWidth.value
+  const ms = firstDay.getTime() + days * 24 * 60 * 60 * 1000
+  return new Date(ms)
+}
+
+// 任务条样式：拖拽中时使用预览 left
+function getTaskBarStyle(item) {
+  const base = getTaskStyle(item)
+  if (base.display === 'none') return base
+  if (draggingItem.value?.id === item.id && dragPreviewLeft.value != null) {
+    return { ...base, left: `${dragPreviewLeft.value}px`, transition: 'none' }
+  }
+  return base
+}
+
+function onTaskBarMouseDown(e, item) {
+  if (!canDrag(item) || !rightContentRef.value || timeAxis.value.length === 0) return
+  const rect = rightContentRef.value.getBoundingClientRect()
+  const startX = e.clientX - rect.left + rightContentRef.value.scrollLeft
+  const startLeft = pixelOffsetToDate(0) ? (new Date(item.start_date) - timeAxis.value[0].date) / (24 * 60 * 60 * 1000) * dayWidth.value : 0
+
+  draggingItem.value = item
+  dragPreviewLeft.value = startLeft
+
+  const onMove = (e2) => {
+    if (!draggingItem.value || !rightContentRef.value) return
+    const r = rightContentRef.value.getBoundingClientRect()
+    let offset = e2.clientX - r.left + rightContentRef.value.scrollLeft
+    const barWidth = Math.max(((new Date(item.end_date) - new Date(item.start_date)) / (24 * 60 * 60 * 1000)) * dayWidth.value, 6)
+    offset = Math.max(0, Math.min(offset, totalWidth.value - barWidth))
+    dragPreviewLeft.value = offset
+  }
+
+  const onUp = () => {
+    if (!draggingItem.value) return
+    const itemToEmit = draggingItem.value
+    const leftPx = dragPreviewLeft.value != null ? dragPreviewLeft.value : 0
+    draggingItem.value = null
+    dragPreviewLeft.value = null
+    document.removeEventListener('mousemove', onMove)
+    document.removeEventListener('mouseup', onUp)
+
+    const newStart = pixelOffsetToDate(leftPx)
+    if (!newStart) return
+    const roundedStart = roundTo15Min(newStart)
+    const [rangeStart, rangeEnd] = props.dateRange || []
+    let clampedStart = roundedStart
+    if (rangeStart && rangeEnd) {
+      const start = new Date(rangeStart)
+      const end = new Date(rangeEnd)
+      end.setHours(23, 59, 59, 999)
+      if (clampedStart < start) clampedStart = start
+      if (clampedStart > end) clampedStart = end
+    }
+
+    emit('task-dragged', {
+      operationId: itemToEmit.operation_id,
+      newStart: clampedStart,
+      resourceId: itemToEmit.resource_id ?? null,
+      originalStart: new Date(itemToEmit.start_date)
+    })
+  }
+
+  document.addEventListener('mousemove', onMove)
+  document.addEventListener('mouseup', onUp)
+}
 
 // 左侧表格纵向滚动时，同步右侧甘特条区域
 const handleLeftScroll = () => {
@@ -849,6 +945,16 @@ const formatDateTime = (dateStr) => {
   overflow: hidden;
   cursor: pointer;
   transition: box-shadow 0.2s;
+
+  &.is-draggable {
+    cursor: grab;
+  }
+
+  &.is-dragging {
+    cursor: grabbing;
+    user-select: none;
+    z-index: 10;
+  }
   
   &:hover {
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);

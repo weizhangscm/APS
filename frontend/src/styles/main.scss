@@ -148,17 +148,36 @@ body {
   transition: all 0.2s ease;
   
   &--primary {
-    background: $m3-primary !important;
-    border-color: $m3-primary !important;
-    color: $m3-on-primary !important;
-    
+    /* We 图标底色 #0099cc，仅改颜色 */
+    background: #0099cc !important;
+    border-color: #0099cc !important;
+    color: #fff !important;
+
+    span,
+    .el-icon {
+      color: #fff !important;
+    }
+
     &:hover, &:focus {
-      background: darken($m3-primary, 8%) !important;
-      border-color: darken($m3-primary, 8%) !important;
+      background: darken(#0099cc, 8%) !important;
+      border-color: darken(#0099cc, 8%) !important;
       box-shadow: $m3-elevation-1;
+      color: #fff !important;
+      span,
+      .el-icon {
+        color: #fff !important;
+      }
     }
   }
-  
+
+  &--primary.is-link,
+  &--primary.is-text {
+    color: #0099cc !important;
+    &:hover, &:focus {
+      color: darken(#0099cc, 8%) !important;
+    }
+  }
+
   &--default {
     background: $m3-surface !important;
     border: 1px solid $m3-outline !important;

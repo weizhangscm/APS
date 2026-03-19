@@ -384,6 +384,7 @@ const filterResourceId = ref(null)
 const filterDelayed = ref(null)
 
 // 判断订单是否延期
+// 规则：预计完工时间晚于「交货期当天结束」才算延期；同一天内完工视为准时（交期按“天”理解）
 const isOrderDelayed = (order) => {
   if (!order.due_date) return false
   
@@ -402,8 +403,9 @@ const isOrderDelayed = (order) => {
     return false
   }
   
-  // 有预计完工时间，比较预计完工时间和交货期
-  return dayjs(finishTime).isAfter(dayjs(order.due_date))
+  // 有预计完工时间：仅当完工时间晚于交货期当日结束时才算延期（同一天内完工不算延期）
+  const dueEndOfDay = dayjs(order.due_date).endOf('day')
+  return dayjs(finishTime).isAfter(dueEndOfDay)
 }
 
 // 订单列表（全部数据，DS订单数据是数据源，再经过筛选）

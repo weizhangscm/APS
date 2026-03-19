@@ -116,9 +116,40 @@ export const useSchedulingStore = defineStore('scheduling', () => {
       if (result.success) {
         await fetchGanttData(currentViewType.value)
       }
+      // 记录本次单工序拖拽调整到计划日志，便于在「计划日志」弹窗中查看
+      const firstConflict = (result.conflicts && result.conflicts[0]) || null
+      planLog.value = {
+        success: !!result.success,
+        message: result.message || (result.success ? 'Operation rescheduled' : 'Operation reschedule failed'),
+        // 与自动计划保持相同字段结构
+        details: [{
+          order_number: firstConflict?.order_number || '',   // 当前接口暂未返回订单号，这里占位
+          success: !!result.success,
+          operations_count: 1,
+          error: firstConflict?.message || ''
+        }],
+        scheduled_orders: result.success ? 1 : 0,
+        scheduled_operations: 1,
+        timestamp: new Date().toLocaleString()
+      }
       return result
     } catch (error) {
       console.error('Reschedule failed:', error)
+      // 即使请求失败（如 500），也写一条计划日志，方便在「计划日志」中查看原因
+      const backendMessage = error?.response?.data?.message
+      planLog.value = {
+        success: false,
+        message: backendMessage || error?.message || '请求失败',
+        details: [{
+          order_number: '',
+          success: false,
+          operations_count: 1,
+          error: backendMessage || error?.message || ''
+        }],
+        scheduled_orders: 0,
+        scheduled_operations: 1,
+        timestamp: new Date().toLocaleString()
+      }
       throw error
     }
   }

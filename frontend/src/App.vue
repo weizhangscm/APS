@@ -10,7 +10,7 @@
         <el-aside width="280px" class="sidebar">
           <div class="logo">
             <div class="logo-icon we-logo">
-              <span>We</span>
+              <img class="we-logo-img" src="@/assets/we-logo.png" alt="We" />
             </div>
             <span>{{ t('app.title') }}</span>
           </div>
@@ -130,7 +130,7 @@ const t = (key) => i18nStore.t(key)
 const activeMenu = computed(() => route.path)
 const isLoginPage = computed(() => route.path === '/login')
 
-const elementLocale = computed(() => i18nStore.currentLocale === 'zh-CN' ? zhCn : en)
+const elementLocale = computed(() => i18nStore.currentLocale?.value === 'zh-CN' ? zhCn : en)
 
 // 用户信息
 const currentUser = computed(() => {
@@ -141,7 +141,19 @@ const currentUser = computed(() => {
   }
 })
 
-const userName = computed(() => currentUser.value.full_name || currentUser.value.username || (i18nStore.currentLocale === 'zh-CN' ? '用户' : 'User'))
+const userName = computed(() => {
+  const locale = i18nStore.currentLocale?.value ?? i18nStore.currentLocale
+  const fullName = currentUser.value.full_name
+  const username = currentUser.value.username
+
+  // 英文环境下：若 full_name 含中文，则用英文兜底，避免中英混排
+  if (String(locale).toLowerCase().startsWith('en') && typeof fullName === 'string' && /[\u4e00-\u9fff]/.test(fullName)) {
+    if (currentUser.value.is_admin) return i18nStore.t('user.admin')
+    return username || 'User'
+  }
+
+  return fullName || username || (String(locale) === 'zh-CN' ? '用户' : 'User')
+})
 const userInitial = computed(() => (userName.value || 'U')[0].toUpperCase())
 const userRole = computed(() => currentUser.value.is_admin ? i18nStore.t('user.admin') : i18nStore.t('user.regularUser'))
 
@@ -292,15 +304,16 @@ $m3-shape-full: 9999px;
       }
       
       &.we-logo {
-        background: #0099cc;
+        background: transparent;
         border-radius: 10px;
-        
-        span {
-          font-family: 'Arial', sans-serif;
-          font-size: 20px;
-          font-weight: 700;
-          color: #fff;
-          letter-spacing: -1px;
+        padding: 0;
+        overflow: hidden;
+
+        .we-logo-img {
+          width: 40px;
+          height: 40px;
+          display: block;
+          object-fit: cover;
         }
       }
     }
@@ -429,7 +442,7 @@ $m3-shape-full: 9999px;
   }
   
   .user-avatar {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: #0099cc;
     color: #fff;
     font-weight: 600;
   }

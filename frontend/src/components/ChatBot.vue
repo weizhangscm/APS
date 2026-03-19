@@ -6,12 +6,12 @@
       type="primary"
       circle
       @click="drawerVisible = true"
-      :title="t('chatbot.open')"
     >
-      <span class="ai-pilot-mark" aria-hidden="true">
-        <span class="ai-pilot-mark__top">WE APS</span>
-        <span class="ai-pilot-mark__bottom">AI Agent</span>
+      <!-- 默认：We（与附件图片一致）；Hover：两行 WE APS / AI Agent -->
+      <span class="we-float-logo" aria-hidden="true">
+        <img class="we-float-logo__img" src="@/assets/we-logo.png" alt="We" />
       </span>
+      <span class="ai-pilot-hover-label" aria-hidden="true">APS AI Agent</span>
     </el-button>
 
     <!-- 聊天抽屉 -->
@@ -34,7 +34,7 @@
               <el-icon><Cpu /></el-icon>
             </div>
             <div class="pilot-meta">
-              <div class="pilot-title">{{ t('chatbot.title') }}</div>
+              <div class="pilot-title">We APS AI Agent</div>
             </div>
           </div>
           <div class="pilot-header-actions">
@@ -273,6 +273,10 @@ onUnmounted(() => {
 </script>
 
 <style lang="scss" scoped>
+/* Shared tokens for the float button hover overlay */
+$we-agent-blue: #1e88e5;
+$we-agent-white: #ffffff;
+
 .chatbot-wrapper {
   position: fixed;
   right: 24px;
@@ -294,29 +298,32 @@ onUnmounted(() => {
 .pilot-hero__logo {
   display: inline-flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
-  background: rgba(255, 255, 255, 0.95);
-  color: #0b1220;
+  background: #ffffff;
+  color: #1f2937;
   border-radius: 10px;
-  padding: 10px 14px;
-  min-width: 220px;
+  padding: 12px 16px;
+  min-width: 260px;
   margin: 4px auto 14px;
-  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.18);
 }
 
 .pilot-hero__logo-main {
-  font-size: 22px;
+  font-size: 26px;
   font-weight: 800;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.00em;
+  line-height: 1.05;
 }
 
 .pilot-hero__logo-sub {
-  font-size: 10px;
-  font-weight: 700;
-  color: rgba(11, 18, 32, 0.72);
-  margin-top: 2px;
-  letter-spacing: 0.08em;
+  font-size: 11px;
+  font-weight: 800;
+  color: #0099cc;
+  margin-top: 4px;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  align-self: flex-end;
 }
 
 .pilot-hero__title {
@@ -408,7 +415,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #2b6cb0 0%, #1a73e8 45%, #6b46c1 100%);
+  background: #0099cc;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
   .el-icon {
     font-size: 20px;
@@ -458,40 +465,61 @@ onUnmounted(() => {
   }
 }
 
+/* We 按钮：恢复为圆形 */
 .chatbot-float-btn {
   width: 56px;
   height: 56px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  transition: box-shadow 0.2s;
-
-  &:hover {
-    box-shadow: 0 6px 20px rgba(26, 115, 232, 0.25);
-  }
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 50% !important;
+  overflow: visible;
+  background: transparent !important;
+  box-shadow: none !important;
+  position: relative;
 }
 
-.ai-pilot-mark {
-  display: inline-flex;
-  flex-direction: column;
+.we-float-logo {
+  width: 56px;
+  height: 56px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  line-height: 1.15;
+  border-radius: 50%;
+  overflow: hidden;
+}
+
+.we-float-logo__img {
+  width: 56px;
+  height: 56px;
+  display: block;
+  object-fit: cover;
+}
+
+.ai-pilot-hover-label {
+  position: absolute;
+  display: none;
+  align-items: center;
+  justify-content: center;
   user-select: none;
-  gap: 0;
-}
-
-.ai-pilot-mark__top {
+  /* show text at the LEFT side of button */
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: $we-agent-blue;
+  box-shadow: none;
+  pointer-events: none;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
   font-weight: 800;
-  font-size: 13px;
-  letter-spacing: 0.04em;
+  font-size: 10px;
+  letter-spacing: 0.02em;
   white-space: nowrap;
+  color: #fff;
 }
 
-.ai-pilot-mark__bottom {
-  font-weight: 700;
-  font-size: 9px;
-  letter-spacing: 0.03em;
-  opacity: 0.95;
-  white-space: nowrap;
+.chatbot-float-btn:hover .ai-pilot-hover-label {
+  display: inline-flex;
 }
 
 .chatbot-drawer :deep(.el-drawer__body) {
@@ -586,7 +614,7 @@ onUnmounted(() => {
   pointer-events: none !important;
 }
 
-/* 打开 WE APS AI Agent 时为主页面增加横向滚动条，避免内容被遮挡 */
+/* 打开 We APS AI Agent 时为主页面增加横向滚动条，避免内容被遮挡 */
 body.we-agent-drawer-open {
   overflow-x: auto;
 }

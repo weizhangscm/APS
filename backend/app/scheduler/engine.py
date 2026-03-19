@@ -15,7 +15,7 @@ from .. import models, schemas
 
 logger = logging.getLogger(__name__)
 from .algorithms import ForwardScheduler, BackwardScheduler, StableForwardScheduler, sort_orders_by_priority
-from .constraints import ConstraintValidator
+from .constraints import ConstraintValidator, ConstraintViolation
 from .cache import schedule_cache, CachedOperation
 
 
@@ -129,76 +129,110 @@ class SchedulingEngine:
             new_resource_id: 新的资源ID（可选）
         
         Returns:
-            包含成功状态和冲突信息的字典
+            始终返回业务结构，不抛出未捕获异常，避免 HTTP 500
         """
-        operation = self.db.query(models.Operation).filter(
-            models.Operation.id == operation_id
-        ).first()
-        
-        if not operation:
+        try:
+            operation = self.db.query(models.Operation).filter(
+                models.Operation.id == operation_id
+            ).first()
+            
+            if not operation:
+                return {
+                    'success': False,
+                    'message': '工序不存在',
+                    'conflicts': []
+                }
+            
+            # 检查订单类型 - 生产订单不允许调整
+            order = operation.order
+            if order and order.order_type == models.OrderType.PRODUCTION.value:
+                return {
+                    'success': False,
+                    'message': '生产订单已确认，不允许调整排程',
+                    'conflicts': []
+                }
+            
+            # 检查约束（含基础主数据检查）
+            violations = self.validator.check_operation_move(
+                operation_id,
+                new_start,
+                new_resource_id
+            )
+            
+            # 如果有错误级别的违反，不允许移动
+            errors = [v for v in violations if v.severity == 'error']
+            if errors:
+                return {
+                    'success': False,
+                    'message': '移动违反约束',
+                    'conflicts': [v.to_dict() for v in violations]
+                }
+            
+            # 更新工序
+            duration = operation.run_time
+            old_start = operation.scheduled_start
+
+            # 若原始开始时间缺失，视为未排程工序，禁止通过拖拽调整
+            if old_start is None:
+                violation = ConstraintViolation(
+                    violation_type='unscheduled_operation',
+                    severity='error',
+                    message='工序尚未排程，无法通过拖拽调整',
+                    operation_id=operation_id,
+                    order_id=operation.order_id
+                )
+                return {
+                    'success': False,
+                    'message': violation.message,
+                    'conflicts': [violation.to_dict()]
+                }
+
+            new_end = new_start + timedelta(hours=duration)
+            
+            # 计算偏移量（秒）
+            offset_seconds = (new_start - old_start).total_seconds()
+            
+            operation.scheduled_start = new_start
+            operation.scheduled_end = new_end
+            
+            if new_resource_id:
+                operation.resource_id = new_resource_id
+            
+            # 联动更新：同步移动该订单的所有后续工序
+            successors = self.db.query(models.Operation).filter(
+                models.Operation.order_id == operation.order_id,
+                models.Operation.sequence > operation.sequence
+            ).all()
+            
+            for succ in successors:
+                if succ.scheduled_start:
+                    succ.scheduled_start = succ.scheduled_start + timedelta(seconds=offset_seconds)
+                    succ.scheduled_end = succ.scheduled_end + timedelta(seconds=offset_seconds)
+            
+            self.db.commit()
+            
+            return {
+                'success': True,
+                'message': '工序已重新排程',
+                'conflicts': [v.to_dict() for v in violations]  # 返回警告
+            }
+        except Exception as e:
+            # 捕获所有未预期异常，写日志并返回业务错误，避免 HTTP 500
+            logger.exception("Failed to reschedule operation %s", operation_id)
+            op = locals().get("operation")
             return {
                 'success': False,
-                'message': '工序不存在',
-                'conflicts': []
+                'message': f'调整工序时发生内部错误：{e}',
+                'conflicts': [{
+                    'type': 'internal_error',
+                    'severity': 'error',
+                    'message': str(e),
+                    'operation_id': operation_id,
+                    'order_id': getattr(op, 'order_id', None) if op is not None else None,
+                    'resource_id': getattr(op, 'resource_id', None) if op is not None else None,
+                    'details': {}
+                }]
             }
-        
-        # 检查订单类型 - 生产订单不允许调整
-        order = operation.order
-        if order and order.order_type == models.OrderType.PRODUCTION.value:
-            return {
-                'success': False,
-                'message': '生产订单已确认，不允许调整排程',
-                'conflicts': []
-            }
-        
-        # 检查约束
-        violations = self.validator.check_operation_move(
-            operation_id,
-            new_start,
-            new_resource_id
-        )
-        
-        # 如果有错误级别的违反，不允许移动
-        errors = [v for v in violations if v.severity == 'error']
-        if errors:
-            return {
-                'success': False,
-                'message': '移动违反约束',
-                'conflicts': [v.to_dict() for v in violations]
-            }
-        
-        # 更新工序
-        duration = operation.run_time
-        old_start = operation.scheduled_start
-        new_end = new_start + timedelta(hours=duration)
-        
-        # 计算偏移量（秒）
-        offset_seconds = (new_start - old_start).total_seconds()
-        
-        operation.scheduled_start = new_start
-        operation.scheduled_end = new_end
-        
-        if new_resource_id:
-            operation.resource_id = new_resource_id
-        
-        # 联动更新：同步移动该订单的所有后续工序
-        successors = self.db.query(models.Operation).filter(
-            models.Operation.order_id == operation.order_id,
-            models.Operation.sequence > operation.sequence
-        ).all()
-        
-        for succ in successors:
-            if succ.scheduled_start:
-                succ.scheduled_start = succ.scheduled_start + timedelta(seconds=offset_seconds)
-                succ.scheduled_end = succ.scheduled_end + timedelta(seconds=offset_seconds)
-        
-        self.db.commit()
-        
-        return {
-            'success': True,
-            'message': '工序已重新排程',
-            'conflicts': [v.to_dict() for v in violations]  # 返回警告
-        }
     
     def clear_scheduling(self, order_ids: List[int] = None):
         """清除排程结果"""
@@ -1892,10 +1926,14 @@ class SchedulingEngine:
         on_time = 0
         delayed = 0
 
-        all_orders_q = self.db.query(models.ProductionOrder)
-        if order_ids_filter is not None:
-            all_orders_q = all_orders_q.filter(models.ProductionOrder.id.in_(order_ids_filter))
+        # 订单准时率：仅统计“已排程”的生产订单 + 计划订单（与需求口径一致）
+        # - 计划订单：status=SCHEDULED 且无 pending 工序（见 planned_scheduled_ids）
+        # - 生产订单：confirmed_end != None（见 production_orders）
+        all_orders_q = self.db.query(models.ProductionOrder).filter(
+            models.ProductionOrder.id.in_(all_scheduled_ids)
+        )
         all_orders = all_orders_q.all()
+        total_for_ontime = 0
 
         for order in all_orders:
             if not order.due_date:
@@ -1907,6 +1945,8 @@ class SchedulingEngine:
 
             if not last_op:
                 continue
+
+            total_for_ontime += 1
 
             # 确定完工时间：优先缓存 > scheduled_end > confirmed_end > 交货期（待排程）
             if last_op.id in cached_ops:
@@ -1924,7 +1964,7 @@ class SchedulingEngine:
             else:
                 delayed += 1
 
-        on_time_rate = (on_time / total * 100) if total > 0 else 0
+        on_time_rate = (on_time / total_for_ontime * 100) if total_for_ontime > 0 else 0
 
         return schemas.OrderKPI(
             total_orders=total,
@@ -1937,7 +1977,10 @@ class SchedulingEngine:
     def _calculate_avg_lead_time(
         self, order_ids_filter: Optional[Set[int]] = None
     ) -> float:
-        """计算平均提前期（含缓存预览排程和生产订单）。order_ids_filter 不为空时仅统计该集合内订单。"""
+        """计算平均提前期（含缓存预览排程和生产订单）。
+        仅统计“已排程”的计划订单与生产订单（与 KPI 订单准时率口径一致）。
+        order_ids_filter 不为空时仅统计该集合内订单。
+        """
         cached_ops: Dict[int, object] = {}
         if schedule_cache.has_unsaved_changes:
             for cached_op in schedule_cache.get_all_operations():
@@ -1956,6 +1999,17 @@ class SchedulingEngine:
             planned_q = planned_q.filter(models.ProductionOrder.id.in_(order_ids_filter))
         planned_orders = planned_q.all()
 
+        # 与订单列表展示一致：若有任一工序为 pending，则不计入「已排程」集合
+        pending_order_ids_query = self.db.query(models.Operation.order_id).filter(
+            models.Operation.status == models.OperationStatus.PENDING.value
+        ).distinct()
+        if order_ids_filter is not None:
+            pending_order_ids_query = pending_order_ids_query.filter(
+                models.Operation.order_id.in_(order_ids_filter)
+            )
+        pending_order_ids = set(row[0] for row in pending_order_ids_query.all())
+        planned_scheduled_ids = set(o.id for o in planned_orders) - pending_order_ids
+
         prod_q = self.db.query(models.ProductionOrder).filter(
             models.ProductionOrder.order_type == models.OrderType.PRODUCTION.value,
             models.ProductionOrder.confirmed_end != None
@@ -1964,7 +2018,7 @@ class SchedulingEngine:
             prod_q = prod_q.filter(models.ProductionOrder.id.in_(order_ids_filter))
         production_orders = prod_q.all()
 
-        order_ids = set(o.id for o in planned_orders) | set(o.id for o in production_orders)
+        order_ids = planned_scheduled_ids | set(o.id for o in production_orders)
 
         if cached_ops:
             for cached_op in cached_ops.values():
@@ -1977,9 +2031,9 @@ class SchedulingEngine:
         if not order_ids:
             return 0.0
 
-        all_orders_q = self.db.query(models.ProductionOrder)
-        if order_ids_filter is not None:
-            all_orders_q = all_orders_q.filter(models.ProductionOrder.id.in_(order_ids_filter))
+        all_orders_q = self.db.query(models.ProductionOrder).filter(
+            models.ProductionOrder.id.in_(order_ids)
+        )
         all_orders = all_orders_q.all()
 
         total_lead_time = 0.0

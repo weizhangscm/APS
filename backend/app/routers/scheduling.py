@@ -81,11 +81,27 @@ def reschedule_operation(
     - **new_resource_id**: 新的资源ID（可选，不填则保持原资源）
     """
     engine = SchedulingEngine(db)
-    return engine.reschedule_operation(
-        operation_id=request.operation_id,
-        new_start=request.new_start,
-        new_resource_id=request.new_resource_id
-    )
+    # 这里再加一层保护，确保无论引擎内部发生什么错误，都不会返回 HTTP 500
+    try:
+        return engine.reschedule_operation(
+            operation_id=request.operation_id,
+            new_start=request.new_start,
+            new_resource_id=request.new_resource_id
+        )
+    except Exception as e:
+        # 最终兜底：返回结构化业务错误
+        from ..scheduler.constraints import ConstraintViolation
+        violation = ConstraintViolation(
+            violation_type='internal_error',
+            severity='error',
+            message=f'调整工序时发生系统错误：{e}',
+            operation_id=request.operation_id
+        )
+        return {
+            'success': False,
+            'message': violation.message,
+            'conflicts': [violation.to_dict()]
+        }
 
 
 @router.get("/gantt-data", response_model=schemas.GanttData)

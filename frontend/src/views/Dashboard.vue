@@ -47,7 +47,7 @@
       <el-col :span="6">
         <KPICard 
           :title="t('dashboard.scheduledOrders')"
-          :value="kpiData?.order_kpi?.scheduled_orders || 0"
+          :value="scheduledOrders"
           :unit="t('dashboard.unitPcs')"
           icon="Finished"
           color="success"
@@ -56,17 +56,17 @@
       <el-col :span="6">
         <KPICard 
           :title="t('dashboard.onTimeRate')"
-          :value="kpiData?.order_kpi?.on_time_rate || 0"
+          :value="safeOnTimeRate"
           unit="%"
           icon="Timer"
-          :color="getOnTimeRateColor(kpiData?.order_kpi?.on_time_rate)"
+          :color="getOnTimeRateColor(onTimeRateForColor)"
           :decimals="1"
         />
       </el-col>
       <el-col :span="6">
         <KPICard 
           :title="t('dashboard.averageLeadTime')"
-          :value="kpiData?.avg_lead_time_hours || 0"
+          :value="safeAvgLeadTimeHours"
           :unit="t('dashboard.unitHours')"
           icon="Clock"
           color="primary"
@@ -183,6 +183,26 @@ const schedulingStore = useSchedulingStore()
 
 const loading = ref(false)
 const kpiData = computed(() => schedulingStore.kpiData)
+
+// --- KPI values (avoid misleading values when scheduled=0) ---
+const scheduledOrders = computed(() => kpiData.value?.order_kpi?.scheduled_orders ?? 0)
+
+const onTimeRateValue = computed(() => {
+  const rate = kpiData.value?.order_kpi?.on_time_rate
+  if (scheduledOrders.value <= 0) return null
+  return typeof rate === 'number' && Number.isFinite(rate) ? rate : null
+})
+const safeOnTimeRate = computed(() => onTimeRateValue.value ?? '--')
+const onTimeRateForColor = computed(() =>
+  typeof onTimeRateValue.value === 'number' ? onTimeRateValue.value : 0
+)
+
+const avgLeadTimeValue = computed(() => {
+  const v = kpiData.value?.avg_lead_time_hours
+  if (scheduledOrders.value <= 0) return null
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+})
+const safeAvgLeadTimeHours = computed(() => avgLeadTimeValue.value ?? '--')
 
 // 交期区间：默认为下周一到周日
 function getDefaultDateRange() {

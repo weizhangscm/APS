@@ -22,12 +22,46 @@ export default {
   user: {
     profile: 'Profile',
     changePassword: 'Change Password',
+    databaseManagement: 'Database Management',
     logout: 'Logout',
     admin: 'Administrator',
     regularUser: 'Regular User',
     confirmLogout: 'Are you sure you want to logout?',
     logoutSuccess: 'Logged out successfully',
     profileComingSoon: 'Profile - Coming soon'
+  },
+
+  dataManagement: {
+    title: 'Database Management',
+    clearAll: 'Clear all data',
+    clearSelected: 'Clear selected',
+    warningTitle: 'Dangerous operation',
+    warningDesc: 'Clearing data is irreversible. Please make sure this environment allows it.',
+    confirmTitle: 'Confirm',
+    confirmSelected: 'Are you sure you want to clear the selected data? This cannot be undone.',
+    confirmAll: 'Are you sure you want to clear ALL data? This cannot be undone.',
+    clearSuccess: 'Cleared successfully',
+    lastResult: 'Last result',
+    workCenters: 'Work centers',
+    workCentersDesc: 'work_centers (may cascade dependent data)',
+    resources: 'Resources',
+    resourcesDesc: 'resources (may cascade dependent data)',
+    shifts: 'Shifts',
+    shiftsDesc: 'shifts',
+    products: 'Products',
+    productsDesc: 'products (may cascade dependent data)',
+    routings: 'Routings',
+    routingsDesc: 'routings',
+    routingOperations: 'Routing operations',
+    routingOperationsDesc: 'routing_operations',
+    setupGroups: 'Setup groups',
+    setupGroupsDesc: 'setup_groups',
+    productSetupGroups: 'Product setup assignments',
+    productSetupGroupsDesc: 'product_setup_groups',
+    setupMatrix: 'Setup matrix',
+    setupMatrixDesc: 'setup_matrix',
+    productionOrders: 'Production/Planning orders',
+    productionOrdersDesc: 'production_orders (will also clear operations)'
   },
 
   // Password Change
@@ -64,7 +98,12 @@ export default {
     no: 'No',
     startDate: 'Start Date',
     endDate: 'End Date',
-    to: 'To'
+    to: 'To',
+    downloadTemplate: 'Download template',
+    export: 'Export',
+    import: 'Import',
+    created: 'Created',
+    updated: 'Updated'
   },
 
   // Login
@@ -252,6 +291,14 @@ export default {
     discardChangesFailed: 'Discard plan failed',
     replanSuccess: 'Replan successful',
     replanFailed: 'Replan failed',
+    resourceUnavailable: 'Resource unavailable',
+    cannotBeforePrevOperation: 'Cannot start before previous operation ends',
+    saveOrDiscardFirst: 'Please save or discard current plan before adjusting',
+    operationMissingRuntime: 'Operation runtime is not maintained, cannot adjust schedule',
+    operationUnscheduledForDrag: 'Operation is not yet scheduled. Please run heuristic or auto planning first, then drag to adjust',
+    resourceUnavailable: 'Resource unavailable',
+    cannotBeforePrevOperation: 'Cannot start before previous operation ends',
+    saveOrDiscardFirst: 'Please save or discard current plan before adjusting',
     // Backend message translations (displayed when locale is EN)
     savedOrdersOperations: 'Saved {ops} operations for {orders} orders',
     cancelledOrdersOperations: 'Cancelled {ops} operations for {orders} orders',
@@ -670,11 +717,11 @@ export default {
 
   // Chatbot
   chatbot: {
-    title: 'WE APS AI Agent',
-    pilotName: 'WE APS AI Agent',
-    open: 'Open WE APS AI Agent',
+    title: 'We APS AI Agent',
+    pilotName: 'We APS AI Agent',
+    open: 'Open We APS AI Agent',
     back: 'Back',
-    heroTitle: 'WE APS AI Agent',
+    heroTitle: 'We APS AI Agent',
     heroSubtitle: 'AI-native scheduling assistant. Operate APS with natural language.',
     quickDelayedOrders: 'Which orders are delayed?',
     quickHeuristic: 'Run heuristic scheduling',

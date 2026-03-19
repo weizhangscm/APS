@@ -226,6 +226,7 @@
             :tasks="resourceGanttData"
             :date-range="dateRange"
             :zoom-level="currentZoom"
+            @task-dragged="handleTaskDragged"
           />
         </div>
       </div>
@@ -251,6 +252,7 @@
             :tasks="productGanttData"
             :date-range="dateRange"
             :zoom-level="currentZoom"
+            @task-dragged="handleTaskDragged"
           />
         </div>
       </div>
@@ -1214,6 +1216,14 @@ const handleReplan = async () => {
   }
 }
 
+const handleTaskDragged = async (data) => {
+  if (hasUnsavedChanges.value) {
+    ElMessage.warning(t('dsView.saveOrDiscardFirst'))
+    return
+  }
+  await handleTaskUpdated(data)
+}
+
 const handleTaskUpdated = async (data) => {
   try {
     const result = await schedulingStore.rescheduleOperation(
@@ -1223,12 +1233,24 @@ const handleTaskUpdated = async (data) => {
     )
     if (result.success) {
       ElMessage.success(t('messages.operationSuccess'))
+      await loadGanttData()
     } else {
-      ElMessage.error(trMsg(result.message))
+      const violationType = result.conflicts?.[0]?.type ?? result.violation_type
+      const msg =
+        violationType === 'sequence_violation'
+          ? t('dsView.cannotBeforePrevOperation')
+          : violationType === 'resource_conflict'
+            ? t('dsView.resourceUnavailable')
+            : violationType === 'missing_runtime'
+              ? t('dsView.operationMissingRuntime')
+              : violationType === 'unscheduled_operation'
+                ? t('dsView.operationUnscheduledForDrag')
+                : trMsg(result.message)
+      ElMessage.error(msg)
       await loadGanttData()
     }
   } catch (error) {
-    ElMessage.error(t('messages.updateFailed'))
+    ElMessage.error(trMsg(error?.response?.data?.message) || t('messages.updateFailed'))
     await loadGanttData()
   }
 }

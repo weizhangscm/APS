@@ -231,6 +231,17 @@ class ConstraintValidator:
                 operation_id=operation_id
             ))
             return violations
+
+        # 基础主数据完整性检查（避免在后续计算中抛技术异常）
+        # 1. 运行时间缺失：无法计算 new_end
+        if operation.run_time is None:
+            violations.append(ConstraintViolation(
+                violation_type='missing_runtime',
+                severity='error',
+                message='工序运行时间未维护，无法调整排程',
+                operation_id=operation_id
+            ))
+            return violations
         
         resource_id = new_resource_id or operation.resource_id
         duration = operation.run_time

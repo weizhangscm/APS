@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" role="img" aria-label="We">
+  <rect x="0" y="0" width="64" height="64" rx="10" fill="#1e88e5"/>
+  <text x="12" y="44"
+        fill="#ffffff"
+        font-family="system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif"
+        font-size="40"
+        font-weight="800"
+        letter-spacing="-1.5">We</text>
+</svg>
