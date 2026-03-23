@@ -102,6 +102,22 @@
             <el-option v-for="r in resources" :key="r.id" :label="`${r.code} - ${r.name}`" :value="r.id" />
           </el-select>
 
+          <el-select
+            v-if="matrixScope === 'global' || matrixScope === 'work_center'"
+            v-model="matrixLocationCode"
+            placeholder="矩阵位置"
+            filterable
+            style="width: 220px; margin-left: 12px;"
+            @change="loadMatrixGrid"
+          >
+            <el-option
+              v-for="loc in locationMasters"
+              :key="loc.code"
+              :label="loc.description ? `${loc.code} — ${loc.description}` : loc.code"
+              :value="loc.code"
+            />
+          </el-select>
+
           <el-button type="primary" style="margin-left: 16px;" @click="saveMatrix" :loading="saving">
             <el-icon><Check /></el-icon>
             保存矩阵
@@ -228,6 +244,8 @@ const filterWorkCenterId = ref(null)
 const matrixScope = ref('global')
 const selectedWorkCenterId = ref(null)
 const selectedResourceId = ref(null)
+const matrixLocationCode = ref('1001')
+const locationMasters = ref([])
 
 // 对话框
 const groupDialogVisible = ref(false)
@@ -276,6 +294,16 @@ async function loadData() {
     products.value = productsRes
     workCenters.value = wcRes
     resources.value = resRes
+
+    try {
+      locationMasters.value = await masterDataApi.getLocations()
+      const codes = new Set((locationMasters.value || []).map((l) => l.code))
+      if (!codes.has(matrixLocationCode.value)) {
+        matrixLocationCode.value = codes.has('1001') ? '1001' : locationMasters.value[0]?.code || '1001'
+      }
+    } catch {
+      locationMasters.value = []
+    }
     
     // 加载矩阵
     await loadMatrixGrid()
@@ -292,13 +320,17 @@ async function loadMatrixGrid() {
     let resourceId = null
     let workCenterId = null
     
+    let gridLocation = null
     if (matrixScope.value === 'resource' && selectedResourceId.value) {
       resourceId = selectedResourceId.value
     } else if (matrixScope.value === 'work_center' && selectedWorkCenterId.value) {
       workCenterId = selectedWorkCenterId.value
+      gridLocation = matrixLocationCode.value || '1001'
+    } else if (matrixScope.value === 'global') {
+      gridLocation = matrixLocationCode.value || '1001'
     }
     
-    const grid = await setupMatrixApi.getMatrixGrid(resourceId, workCenterId)
+    const grid = await setupMatrixApi.getMatrixGrid(resourceId, workCenterId, gridLocation)
     matrixGrid.value = grid
     
     // 初始化矩阵值
@@ -413,6 +445,14 @@ async function handleDeleteAssignment(assignment) {
   }
 }
 
+function batchMatrixLocation() {
+  if (matrixScope.value === 'resource' && selectedResourceId.value) {
+    const r = resources.value.find((x) => x.id === selectedResourceId.value)
+    return (r?.location && String(r.location).trim()) || '1001'
+  }
+  return matrixLocationCode.value || '1001'
+}
+
 // 保存矩阵
 async function saveMatrix() {
   saving.value = true
@@ -427,6 +467,8 @@ async function saveMatrix() {
     } else if (matrixScope.value === 'work_center' && selectedWorkCenterId.value) {
       workCenterId = selectedWorkCenterId.value
     }
+
+    const loc = batchMatrixLocation()
     
     for (const fromGroupId in matrixValues) {
       for (const toGroupId in matrixValues[fromGroupId]) {
@@ -437,7 +479,8 @@ async function saveMatrix() {
             to_setup_group_id: parseInt(toGroupId),
             resource_id: resourceId,
             work_center_id: workCenterId,
-            changeover_time: value
+            changeover_time: value,
+            location: loc
           })
         }
       }
@@ -456,6 +499,7 @@ async function saveMatrix() {
 watch(matrixScope, () => {
   selectedWorkCenterId.value = null
   selectedResourceId.value = null
+  matrixLocationCode.value = '1001'
   if (matrixScope.value === 'global') {
     loadMatrixGrid()
   }

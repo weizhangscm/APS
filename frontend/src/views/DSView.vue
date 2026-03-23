@@ -19,6 +19,24 @@
           :prefix-icon="Calendar"
         />
       </div>
+
+      <div class="filter-group">
+        <label class="filter-label">{{ t('dsView.location') }}:</label>
+        <el-select
+          v-model="filterLocation"
+          clearable
+          filterable
+          :placeholder="t('dsView.allLocations')"
+          style="width: 200px"
+        >
+          <el-option
+            v-for="loc in locationMasterOptions"
+            :key="loc.code"
+            :label="dsLocationOptionLabel(loc)"
+            :value="loc.code"
+          />
+        </el-select>
+      </div>
       
       <div class="filter-group">
         <label class="filter-label">{{ t('dsView.resourceName') }}:</label>
@@ -490,6 +508,7 @@ const EXPIRY_DURATION = 10 * 60 * 1000 // 10分钟（毫秒）
 const saveFiltersToStorage = () => {
   const filters = {
     dateRange: dateRange.value,
+    filterLocation: filterLocation.value,
     selectedResources: selectedResources.value,
     selectedProducts: selectedProducts.value,
     selectedCharts: selectedCharts.value,
@@ -596,6 +615,49 @@ const dateShortcuts = computed(() => [
 const selectedResources = ref(savedFilters?.selectedResources || [])
 const resourceOptions = ref([])  // 所有资源
 const bottleneckOnly = ref(savedFilters?.bottleneckOnly ?? true)  // 是否只显示瓶颈资源，默认勾选
+
+const filterLocation = ref(savedFilters?.filterLocation || '')
+const locationMasterOptions = ref([])
+
+const dsLocationOptionLabel = (loc) => {
+  if (!loc) return ''
+  const d = (loc.description || '').trim()
+  return d ? `${loc.code} · ${d}` : loc.code
+}
+
+const loadLocationMaster = async () => {
+  try {
+    locationMasterOptions.value = (await masterDataApi.getLocations()) || []
+  } catch (e) {
+    console.error('Failed to load locations:', e)
+    locationMasterOptions.value = []
+  }
+}
+
+const buildGanttLocationParams = () => {
+  const explicit = filterLocation.value && String(filterLocation.value).trim()
+  if (explicit) {
+    return { product_location: explicit, resource_location: explicit }
+  }
+  const pls = [
+    ...new Set(
+      selectedProducts.value
+        .map((id) => productOptions.value.find((p) => p.id === id)?.location)
+        .filter((x) => x && String(x).trim())
+    )
+  ]
+  const rls = [
+    ...new Set(
+      selectedResources.value
+        .map((id) => resourceOptions.value.find((r) => r.id === id)?.location)
+        .filter((x) => x && String(x).trim())
+    )
+  ]
+  const locParams = {}
+  if (pls.length === 1) locParams.product_location = pls[0]
+  if (rls.length === 1) locParams.resource_location = rls[0]
+  return locParams
+}
 
 // 根据瓶颈筛选后的资源列表
 const filteredResourceOptions = computed(() => {
@@ -914,11 +976,22 @@ const loadResources = async () => {
     const data = await masterDataApi.getResources()
     // 模拟瓶颈资源：将名称包含 "CNC" 或 "加工" 的资源标记为瓶颈
     // 实际项目中应该从后端获取 is_bottleneck 字段
-    resourceOptions.value = data.map(r => ({ 
-      id: r.id, 
+    resourceOptions.value = data.map(r => ({
+      id: r.id,
       name: r.name,
+      code: r.code,
+      location: r.location || '',
       is_bottleneck: r.name.includes('CNC') || r.name.includes('加工') || r.name.includes('瓶颈')
     }))
+    dsFiltersStore.setDSResources(
+      resourceOptions.value.map((r) => ({
+        id: r.id,
+        name: r.name,
+        code: r.code,
+        location: r.location || '',
+        is_bottleneck: r.is_bottleneck
+      }))
+    )
   } catch (error) {
     console.error('Failed to load resources:', error)
   }
@@ -927,7 +1000,20 @@ const loadResources = async () => {
 const loadProducts = async () => {
   try {
     const data = await masterDataApi.getProducts()
-    productOptions.value = data.map(p => ({ id: p.id, name: p.product_number || p.name }))
+    productOptions.value = data.map((p) => ({
+      id: p.id,
+      name: p.product_number || p.name,
+      code: p.code,
+      location: p.location || ''
+    }))
+    dsFiltersStore.setDSProducts(
+      data.map((p) => ({
+        id: p.id,
+        product_code: p.code,
+        product_description: p.name,
+        location: p.location || ''
+      }))
+    )
   } catch (error) {
     console.error('Failed to load products:', error)
   }
@@ -935,12 +1021,13 @@ const loadProducts = async () => {
 
 const loadGanttData = async () => {
   const [startDate, endDate] = dateRange.value || []
-  
+  const locParams = buildGanttLocationParams()
+
   // 资源图表使用 'resource' 视图类型 - 第一级是资源名称，第二级是订单+工序
-  await schedulingStore.fetchGanttData('resource', startDate, endDate)
-  
+  await schedulingStore.fetchGanttData('resource', startDate, endDate, locParams)
+
   if (selectedCharts.value.includes('product')) {
-    await schedulingStore.fetchProductGanttData(startDate, endDate)
+    await schedulingStore.fetchProductGanttData(startDate, endDate, locParams)
   }
   
   if (selectedCharts.value.includes('utilization')) {
@@ -1263,7 +1350,7 @@ const handleTaskClicked = (task) => {
 watch(selectedCharts, async (newVal) => {
   if (newVal.includes('product') && !schedulingStore.productGanttData?.data?.length) {
     const [startDate, endDate] = dateRange.value || []
-    await schedulingStore.fetchProductGanttData(startDate, endDate)
+    await schedulingStore.fetchProductGanttData(startDate, endDate, buildGanttLocationParams())
   }
   if (newVal.includes('utilization') && !schedulingStore.utilizationData?.length) {
     const [startDate, endDate] = dateRange.value || []
@@ -1274,6 +1361,10 @@ watch(selectedCharts, async (newVal) => {
 // ===== 监听日期范围变化 =====
 watch(dateRange, async () => {
   await loadGanttData()
+})
+
+watch(filterLocation, () => {
+  loadGanttData()
 })
 
 // ===== 监听缩放级别变化，重新加载利用率数据 =====
@@ -1294,7 +1385,7 @@ watch(
 
 // ===== 监听筛选条件变化，自动保存并同步到共享store =====
 watch(
-  [dateRange, selectedResources, selectedProducts, selectedCharts, currentZoom, bottleneckOnly],
+  [dateRange, filterLocation, selectedResources, selectedProducts, selectedCharts, currentZoom, bottleneckOnly],
   () => {
     saveFiltersToStorage()
     // 同步到共享store，供其他DS页面使用
@@ -1311,6 +1402,7 @@ onMounted(async () => {
   await Promise.all([
     loadResources(),
     loadProducts(),
+    loadLocationMaster(),
     loadGanttData()
   ])
   
@@ -1318,8 +1410,6 @@ onMounted(async () => {
   dsFiltersStore.setSelectedResources(selectedResources.value)
   dsFiltersStore.setSelectedProducts(selectedProducts.value)
   dsFiltersStore.setDateRange(dateRange.value)
-  dsFiltersStore.setResourceOptions(resourceOptions.value)
-  dsFiltersStore.setProductOptions(productOptions.value)
   dsFiltersStore.setBottleneckOnly(bottleneckOnly.value)
 })
 

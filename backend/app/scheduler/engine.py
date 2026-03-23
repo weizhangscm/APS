@@ -25,7 +25,75 @@ class SchedulingEngine:
     def __init__(self, db: Session):
         self.db = db
         self.validator = ConstraintValidator(db)
-    
+
+    def _order_ids_matching_locations(
+        self,
+        product_location: Optional[str] = None,
+        resource_location: Optional[str] = None,
+    ) -> Optional[Set[int]]:
+        """产品 location 与资源 location AND；均未传则 None（不过滤）。"""
+        from sqlalchemy import exists, select
+        from sqlalchemy.orm import aliased
+        from ..services.location_catalog import normalize_location_code
+
+        pl = normalize_location_code(product_location)
+        rl = normalize_location_code(resource_location)
+        if not pl and not rl:
+            return None
+        q = self.db.query(models.ProductionOrder.id)
+        if pl:
+            q = q.join(
+                models.Product,
+                models.Product.id == models.ProductionOrder.product_id,
+            ).filter(models.Product.location == pl)
+        if rl:
+            Op = aliased(models.Operation)
+            Res = aliased(models.Resource)
+            q = q.filter(
+                exists(
+                    select(1)
+                    .select_from(Op)
+                    .join(Res, Op.resource_id == Res.id)
+                    .where(
+                        Op.order_id == models.ProductionOrder.id,
+                        Res.location == rl,
+                    )
+                )
+            )
+        return {row[0] for row in q.distinct().all()}
+
+    def _order_ids_with_resources(self, resource_ids: Set[int]) -> Set[int]:
+        """至少有一道工序落在给定资源上的订单 ID 集合。"""
+        if not resource_ids:
+            return set()
+        rows = (
+            self.db.query(models.Operation.order_id)
+            .filter(models.Operation.resource_id.in_(resource_ids))
+            .distinct()
+            .all()
+        )
+        return {row[0] for row in rows}
+
+    def _shifts_for_resource(self, resource: models.Resource) -> List[models.Shift]:
+        from ..services.location_catalog import (
+            PRIMARY_LOCATION_CODE,
+            matrix_location_for_resource,
+            normalize_location_code,
+        )
+
+        shifts = (
+            self.db.query(models.Shift)
+            .filter(models.Shift.resource_id == resource.id)
+            .all()
+        )
+        target = matrix_location_for_resource(resource)
+        out = []
+        for s in shifts:
+            sl = normalize_location_code(getattr(s, "location", None)) or PRIMARY_LOCATION_CODE
+            if sl == target:
+                out.append(s)
+        return out
+
     def run_scheduling(
         self,
         order_ids: List[int] = None,
@@ -963,7 +1031,9 @@ class SchedulingEngine:
         start_date: datetime = None,
         end_date: datetime = None,
         view_type: str = "order",  # "order" 或 "resource"
-        include_cache: bool = True  # 是否包含缓存的未保存排程
+        include_cache: bool = True,  # 是否包含缓存的未保存排程
+        product_location: Optional[str] = None,
+        resource_location: Optional[str] = None,
     ) -> schemas.GanttData:
         """
         获取甘特图数据
@@ -992,12 +1062,21 @@ class SchedulingEngine:
             for cached_op in schedule_cache.get_all_operations():
                 cached_ops[cached_op.operation_id] = cached_op
         
+        loc_order_ids = self._order_ids_matching_locations(
+            product_location, resource_location
+        )
         if view_type == "order":
-            tasks, links = self._get_order_view_data(start_date, end_date, cached_ops)
+            tasks, links = self._get_order_view_data(
+                start_date, end_date, cached_ops, loc_order_ids
+            )
         elif view_type == "product":
-            tasks, links = self._get_product_view_data(start_date, end_date, cached_ops)
+            tasks, links = self._get_product_view_data(
+                start_date, end_date, cached_ops, loc_order_ids
+            )
         else:
-            tasks, links = self._get_resource_view_data(start_date, end_date, cached_ops)
+            tasks, links = self._get_resource_view_data(
+                start_date, end_date, cached_ops, loc_order_ids
+            )
         
         return schemas.GanttData(
             data=tasks, 
@@ -1051,7 +1130,8 @@ class SchedulingEngine:
         self,
         start_date: datetime,
         end_date: datetime,
-        cached_ops: Dict[int, 'CachedOperation'] = None
+        cached_ops: Dict[int, 'CachedOperation'] = None,
+        allowed_order_ids: Optional[Set[int]] = None,
     ) -> tuple:
         """获取订单视图的甘特图数据
         
@@ -1071,7 +1151,10 @@ class SchedulingEngine:
                 models.ProductionOrder.order_type == models.OrderType.PRODUCTION.value
             )
         ).all()
-        
+
+        if allowed_order_ids is not None:
+            orders = [o for o in orders if o.id in allowed_order_ids]
+
         # 状态颜色映射 - 区分计划订单和生产订单
         planned_colors = {
             'pending': '#909399',
@@ -1243,7 +1326,8 @@ class SchedulingEngine:
         self,
         start_date: datetime,
         end_date: datetime,
-        cached_ops: Dict[int, 'CachedOperation'] = None
+        cached_ops: Dict[int, 'CachedOperation'] = None,
+        allowed_order_ids: Optional[Set[int]] = None,
     ) -> tuple:
         """获取资源视图的甘特图数据
         
@@ -1391,16 +1475,21 @@ class SchedulingEngine:
                     ).all()
                 
                 all_operations = operations_with_resource + pending_without_resource
-            
+
+            if allowed_order_ids is not None:
+                all_operations = [
+                    o for o in all_operations if o.order_id in allowed_order_ids
+                ]
+
             # 按排程时间排序（待排程的放在后面）
             # 对于缓存中的工序，使用缓存的时间排序
             def get_sort_key(op):
                 if op.id in cached_ops:
                     return (cached_ops[op.id].scheduled_start or datetime.max, op.id)
                 return (op.scheduled_start if op.scheduled_start else datetime.max, op.id)
-            
+
             all_operations.sort(key=get_sort_key)
-            
+
             for op in all_operations:
                 order = op.order
                 order_number = order.order_number if order else ""
@@ -1539,11 +1628,15 @@ class SchedulingEngine:
         due_date_end: Optional[str] = None,
         schedule_date_start: Optional[str] = None,
         schedule_date_end: Optional[str] = None,
+        product_location: Optional[str] = None,
+        resource_location: Optional[str] = None,
+        resource_ids: Optional[List[int]] = None,
     ) -> schemas.KPIDashboard:
         """获取KPI仪表板数据。
 
         - 订单 KPI / 平均提前期：按 due_date_start/due_date_end 过滤（保持原有口径）
         - 资源利用率 / 每日产能负荷 / 资源利用详情：按 schedule_date_start/schedule_date_end 过滤排程时间窗口内的订单
+        - resource_ids：非空时与上述订单集合求交，且利用率/产能明细仅统计这些资源
         """
         due_order_ids_filter: Optional[Set[int]] = None
 
@@ -1641,13 +1734,48 @@ class SchedulingEngine:
                 schedule_window_start_dt = None
                 schedule_window_end_dt = None
 
+        loc_ids = self._order_ids_matching_locations(
+            product_location, resource_location
+        )
+        if loc_ids is not None:
+            if due_order_ids_filter is not None:
+                due_order_ids_filter &= loc_ids
+            else:
+                due_order_ids_filter = set(loc_ids)
+            if schedule_order_ids_filter is not None:
+                schedule_order_ids_filter &= loc_ids
+            else:
+                schedule_order_ids_filter = set(loc_ids)
+
+        resource_id_set: Optional[Set[int]] = None
+        if resource_ids:
+            resource_id_set = {int(x) for x in resource_ids if x is not None}
+            if not resource_id_set:
+                resource_id_set = None
+        if resource_id_set:
+            touch_order_ids = self._order_ids_with_resources(resource_id_set)
+            if due_order_ids_filter is not None:
+                due_order_ids_filter &= touch_order_ids
+            else:
+                due_order_ids_filter = set(touch_order_ids)
+            if schedule_order_ids_filter is not None:
+                schedule_order_ids_filter &= touch_order_ids
+            else:
+                schedule_order_ids_filter = set(touch_order_ids)
+
         resource_utilization = self._calculate_resource_utilization(
-            schedule_order_ids_filter, schedule_window_start_dt, schedule_window_end_dt
+            schedule_order_ids_filter,
+            schedule_window_start_dt,
+            schedule_window_end_dt,
+            resource_ids_filter=resource_id_set,
         )
         order_kpi = self._calculate_order_kpi(due_order_ids_filter)
         avg_lead_time = self._calculate_avg_lead_time(due_order_ids_filter)
         capacity_load = self._calculate_capacity_load_by_day(
-            schedule_order_ids_filter, schedule_window_start_dt, schedule_window_end_dt
+            schedule_order_ids_filter,
+            schedule_window_start_dt,
+            schedule_window_end_dt,
+            resource_ids_filter=resource_id_set,
         )
 
         return schemas.KPIDashboard(
@@ -1681,7 +1809,7 @@ class SchedulingEngine:
 
     def _get_production_hours_per_day(self, resource) -> float:
         """资源每日生产时间（小时）。无班次时与 DS 资源视图一致取 9 小时（09:00-18:00）；有班次时为班次(结束−开始−休息)之和。"""
-        shifts = self.db.query(models.Shift).filter(models.Shift.resource_id == resource.id).all()
+        shifts = self._shifts_for_resource(resource)
         if not shifts:
             # 资源主数据中无班次：与 DS 资源视图展示一致，默认 09:00-18:00 = 9 小时
             return 9.0
@@ -1695,7 +1823,7 @@ class SchedulingEngine:
 
     def _get_working_windows(self, resource) -> List[tuple]:
         """返回资源每日工作时段列表，每项 (start_hm, end_hm, break_minutes)。无班次时与 DS 默认一致。"""
-        shifts = self.db.query(models.Shift).filter(models.Shift.resource_id == resource.id).all()
+        shifts = self._shifts_for_resource(resource)
         if not shifts:
             return [(self._DS_DEFAULT_START, self._DS_DEFAULT_END, self._DS_DEFAULT_BREAK_MINUTES)]
         return [(s.start_time, s.end_time, s.break_time or 0) for s in shifts]
@@ -1740,6 +1868,7 @@ class SchedulingEngine:
         order_ids_filter: Optional[Set[int]] = None,
         window_start: Optional[datetime] = None,
         window_end: Optional[datetime] = None,
+        resource_ids_filter: Optional[Set[int]] = None,
     ) -> List[schemas.ResourceUtilization]:
         """计算资源利用率。仅统计实际占用（已排程+生产订单确认时间），不含待排程虚拟时间。交期区间存在时按该区间实际天数算总产能，否则按未来7天。"""
         result = []
@@ -1773,6 +1902,8 @@ class SchedulingEngine:
                 cached_ops_by_resource[res_id].append(cached_op)
 
         for resource in resources:
+            if resource_ids_filter is not None and resource.id not in resource_ids_filter:
+                continue
             production_hours_per_day = self._get_production_hours_per_day(resource)
             total_capacity = production_hours_per_day * num_days
             scheduled_hours = 0.0
@@ -1856,6 +1987,7 @@ class SchedulingEngine:
                 resource_id=resource.id,
                 resource_name=resource.name,
                 work_center_name=resource.work_center.name if resource.work_center else "",
+                location=resource.location,
                 total_capacity_hours=total_capacity,
                 scheduled_hours=round(scheduled_hours, 1),
                 utilization_percent=round(utilization, 1)
@@ -2084,6 +2216,7 @@ class SchedulingEngine:
         order_ids_filter: Optional[Set[int]] = None,
         window_start_dt: Optional[datetime] = None,
         window_end_dt: Optional[datetime] = None,
+        resource_ids_filter: Optional[Set[int]] = None,
     ) -> dict:
         """计算每日产能负荷。仅统计实际占用（已排程+生产订单确认时间），按天汇总、跨所有资源。交期区间存在时仅统计该区间内每日，否则未来14天。"""
         result = {}
@@ -2097,6 +2230,8 @@ class SchedulingEngine:
 
         resources = self.db.query(models.Resource).all()
         resource_by_id = {r.id: r for r in resources}
+        if resource_ids_filter is not None:
+            resources = [r for r in resources if r.id in resource_ids_filter]
         total_capacity_per_day = sum(self._get_production_hours_per_day(r) for r in resources)
 
         cached_ops: Dict[int, object] = {}
@@ -2119,6 +2254,8 @@ class SchedulingEngine:
         day_ends = [d + timedelta(days=1) for d in day_starts]
 
         def add_working_hours_to_day(day_start: datetime, day_end: datetime, seg_s: datetime, seg_e: datetime, resource_id: int):
+            if resource_ids_filter is not None and resource_id not in resource_ids_filter:
+                return
             if not seg_s or not seg_e or seg_e <= seg_s:
                 return
             overlap_s = max(seg_s, day_start)
@@ -2497,7 +2634,8 @@ class SchedulingEngine:
         self,
         start_date: datetime,
         end_date: datetime,
-        cached_ops: Dict[int, 'CachedOperation'] = None
+        cached_ops: Dict[int, 'CachedOperation'] = None,
+        allowed_order_ids: Optional[Set[int]] = None,
     ) -> tuple:
         """获取产品视图的甘特图数据"""
         cached_ops = cached_ops or {}
@@ -2532,10 +2670,13 @@ class SchedulingEngine:
                     (models.ProductionOrder.due_date <= end_date)
                 )
             ).all()
-            
+
+            if allowed_order_ids is not None:
+                orders = [o for o in orders if o.id in allowed_order_ids]
+
             if not orders:
                 continue
-            
+
             # 收集该产品下所有订单的工序（已排程+待排程，按时间筛选）
             all_operations_with_time = []  # 用于计算产品时间范围
             order_operations_map = {}  # 订单ID -> 工序列表

@@ -5,10 +5,16 @@
         <el-icon><Grid /></el-icon>
         {{ t('dsResource.title') }}
       </h1>
-      <el-button type="primary" @click="handleAdd">
-        <el-icon><Plus /></el-icon>
-        {{ t('dsResource.addResource') }}
-      </el-button>
+      <div class="header-actions">
+        <DataExcelToolbar
+          :entities="[{ id: 'resources', labelKey: 'dataManagement.resources' }]"
+          @imported="loadResources"
+        />
+        <el-button type="primary" @click="handleAdd">
+          <el-icon><Plus /></el-icon>
+          {{ t('dsResource.addResource') }}
+        </el-button>
+      </div>
     </div>
     
     <el-card>
@@ -100,13 +106,18 @@
           <el-input v-model="form.name" :placeholder="t('dsResource.enterResourceName')" />
         </el-form-item>
         <el-form-item :label="t('dsResource.workCenter')" prop="work_center_id">
-          <el-select v-model="form.work_center_id" :placeholder="t('dsResource.selectWorkCenter')" style="width: 100%">
+          <el-select v-model="form.work_center_id" :placeholder="t('dsResource.selectWorkCenter')" clearable filterable style="width: 100%">
             <el-option 
               v-for="wc in workCenters" 
               :key="wc.id" 
               :label="`${wc.code} - ${wc.name}`" 
               :value="wc.id" 
             />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('dsResource.location')">
+          <el-select v-model="form.location" clearable filterable :placeholder="t('dsProduct.selectLocation')" style="width: 100%">
+            <el-option v-for="loc in locations" :key="loc.code" :label="loc.description ? `${loc.code} — ${loc.description}` : loc.code" :value="loc.code" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('dsResource.efficiency')">
@@ -134,8 +145,11 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Grid, Plus } from '@element-plus/icons-vue'
 import { masterDataApi } from '@/api'
 import { useI18nStore } from '@/stores/i18n'
+import { useDSFiltersStore } from '@/stores/dsFilters'
+import DataExcelToolbar from '@/components/DataExcelToolbar.vue'
 
 const i18nStore = useI18nStore()
+const dsFiltersStore = useDSFiltersStore()
 const t = (key) => i18nStore.t(key)
 
 const loading = ref(false)
@@ -145,6 +159,7 @@ const allResourceList = ref([])
 
 // 工作中心列表
 const workCenters = ref([])
+const locations = ref([])
 
 // 对话框状态
 const viewDialogVisible = ref(false)
@@ -159,6 +174,7 @@ const form = ref({
   code: '',
   name: '',
   work_center_id: null,
+  location: '',
   efficiency: 1.0,
   capacity_per_day: 8.0,
   description: ''
@@ -166,9 +182,18 @@ const form = ref({
 
 const rulesRef = computed(() => ({
   code: [{ required: true, message: t('dsResource.enterResourceCode'), trigger: 'blur' }],
-  name: [{ required: true, message: t('dsResource.enterResourceName'), trigger: 'blur' }],
-  work_center_id: [{ required: true, message: t('dsResource.selectWorkCenter'), trigger: 'change' }]
+  name: [{ required: true, message: t('dsResource.enterResourceName'), trigger: 'blur' }]
 }))
+
+const apiDetailMessage = (error) => {
+  const d = error?.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d) && d.length) {
+    const parts = d.map((x) => (typeof x === 'object' && x?.msg ? x.msg : String(x)))
+    return parts.join('; ') || null
+  }
+  return null
+}
 
 const getResourceMode = (capacity) => {
   return (capacity === null || capacity === undefined || capacity === '') 
@@ -240,32 +265,51 @@ const loadResources = async () => {
     const defaultEnd = '18:00:00'
     const defaultBreak = '00:00:00'
     allResourceList.value = data.map(resource => {
-      const start_time = defaultStart
-      const end_time = defaultEnd
-      const break_time = defaultBreak
-      const production_hours = calcProductionHours(start_time, end_time, break_time)
+      const start_time = resource.operating_start || defaultStart
+      const end_time = resource.operating_end || defaultEnd
+      const break_time = resource.operating_break || defaultBreak
+      const production_hours =
+        resource.production_hours != null
+          ? Number(resource.production_hours)
+          : calcProductionHours(start_time, end_time, break_time)
+      const utilization_percent =
+        resource.utilization_percent != null
+          ? Number(resource.utilization_percent)
+          : (resource.efficiency || 1) * 100
       return {
         id: resource.id,
         code: resource.code,
         name: resource.name,
         work_center_id: resource.work_center_id,
-        location: resource.work_center?.code || resource.work_center_id || '1020',
+        location: resource.location || '',
         start_time,
         end_time,
         break_time,
-        utilization_percent: (resource.efficiency || 1) * 100,
+        utilization_percent,
         production_hours,
-        capacity: getCapacityValue(resource),
-        finite_planning: true,
-        is_bottleneck: resource.name?.includes('CNC') || resource.name?.includes('加工') || resource.name?.includes('瓶颈') || false,
-        timezone: 'CET',
-        factory_calendar: resource.work_center?.code === 'CN' ? 'CN' : '01',
-        planning_group: 'A',
+        capacity:
+          resource.capacity_value != null && resource.capacity_value !== ''
+            ? Number(resource.capacity_value)
+            : getCapacityValue(resource),
+        finite_planning: resource.finite_planning !== false && resource.finite_planning !== 0,
+        is_bottleneck: !!resource.is_bottleneck,
+        timezone: resource.timezone || 'CET',
+        factory_calendar: resource.factory_calendar || (resource.work_center?.code === 'CN' ? 'CN' : '01'),
+        planning_group: resource.planning_group || 'A',
         efficiency: resource.efficiency,
         capacity_per_day: resource.capacity_per_day,
         description: resource.description
       }
     })
+    dsFiltersStore.setDSResources(
+      allResourceList.value.map((r) => ({
+        id: r.id,
+        name: r.name,
+        code: r.code,
+        location: r.location || '',
+        is_bottleneck: r.is_bottleneck
+      }))
+    )
   } catch (error) {
     console.error('Failed to load resources:', error)
     ElMessage.error(t('dsResource.loadResourcesFailed'))
@@ -287,6 +331,7 @@ const handleAdd = () => {
     code: '',
     name: '',
     work_center_id: null,
+    location: '',
     efficiency: 1.0,
     capacity_per_day: 8.0,
     description: ''
@@ -302,6 +347,7 @@ const handleEdit = (row) => {
     code: row.code,
     name: row.name,
     work_center_id: row.work_center_id,
+    location: row.location || '',
     efficiency: row.efficiency || 1.0,
     capacity_per_day: row.capacity_per_day || 8.0,
     description: row.description || ''
@@ -317,12 +363,13 @@ const handleDelete = async (row) => {
       t('orders.confirmDeleteTitle'),
       { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
     )
+    await masterDataApi.deleteResource(row.id)
     ElMessage.success(t('messages.deleteSuccess'))
-    loadResources()
+    await loadResources()
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(t('messages.deleteFailed'))
-    }
+    if (error === 'cancel') return
+    const msg = apiDetailMessage(error)
+    ElMessage.error(msg || t('messages.deleteFailed'))
   }
 }
 
@@ -331,27 +378,50 @@ const handleSubmit = async () => {
   try {
     await formRef.value.validate()
     submitting.value = true
-    
+
+    const payload = {
+      name: form.value.name,
+      work_center_id: form.value.work_center_id ?? null,
+      location: form.value.location?.trim() ? form.value.location.trim() : null,
+      efficiency: form.value.efficiency,
+      capacity_per_day: form.value.capacity_per_day,
+      description: form.value.description?.trim() ? form.value.description.trim() : null
+    }
+
     if (isEdit.value) {
+      await masterDataApi.updateResource(form.value.id, payload)
       ElMessage.success(t('messages.updateSuccess'))
     } else {
+      await masterDataApi.createResource({
+        code: form.value.code,
+        ...payload
+      })
       ElMessage.success(t('messages.createSuccess'))
     }
-    
+
     editDialogVisible.value = false
-    loadResources()
+    await loadResources()
   } catch (error) {
-    if (error !== false) {
-      ElMessage.error(isEdit.value ? t('messages.updateFailed') : t('messages.createFailed'))
-    }
+    if (error === false) return
+    const msg = apiDetailMessage(error)
+    ElMessage.error(msg || (isEdit.value ? t('messages.updateFailed') : t('messages.createFailed')))
   } finally {
     submitting.value = false
   }
 }
 
 // 初始化
+const loadLocations = async () => {
+  try {
+    locations.value = await masterDataApi.getLocations()
+  } catch {
+    locations.value = []
+  }
+}
+
 onMounted(() => {
   loadWorkCenters()
+  loadLocations()
   loadResources()
 })
 </script>
@@ -366,6 +436,14 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
   
   h1 {
     margin: 0;

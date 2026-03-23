@@ -6,6 +6,10 @@
         {{ t('shifts.title') }}
       </h1>
       <div class="header-buttons">
+        <DataExcelToolbar
+          :entities="[{ id: 'shifts', labelKey: 'dataManagement.shifts' }]"
+          @imported="fetchData"
+        />
         <el-button @click="handleDefineShiftOrder">{{ t('shifts.defineShiftOrder') }}</el-button>
         <el-button type="primary" @click="handleAdd">
           <el-icon><Plus /></el-icon>
@@ -26,6 +30,7 @@
         <el-table-column prop="start_time" :label="t('shifts.startTime')" min-width="100" align="center" />
         <el-table-column prop="end_time" :label="t('shifts.endTime')" min-width="100" align="center" />
         <el-table-column prop="break_time" :label="t('shifts.breakTime')" min-width="120" align="center" />
+        <el-table-column prop="location" :label="t('shifts.location')" min-width="100" align="center" />
         <el-table-column :label="t('shifts.actions')" width="180" align="center" fixed="right">
           <template #default="{ row }">
             <div class="action-buttons">
@@ -52,6 +57,11 @@
               :label="`${resource.code} - ${resource.name}`" 
               :value="resource.id" 
             />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('shifts.location')" prop="location">
+          <el-select v-model="form.location" :placeholder="t('shifts.selectLocation')" filterable style="width: 100%">
+            <el-option v-for="loc in locations" :key="loc.code" :label="loc.description ? `${loc.code} — ${loc.description}` : loc.code" :value="loc.code" />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('shifts.shiftCode')" prop="shift_code">
@@ -125,17 +135,19 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, Plus } from '@element-plus/icons-vue'
 import { masterDataApi } from '@/api'
 import { useI18nStore } from '@/stores/i18n'
+import DataExcelToolbar from '@/components/DataExcelToolbar.vue'
 
 const i18nStore = useI18nStore()
 const t = (key) => i18nStore.t(key)
 
 const shifts = ref([])
 const resources = ref([])
+const locations = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
 const shiftOrderDialogVisible = ref(false)
@@ -152,11 +164,13 @@ const form = ref({
   shift_name: '',
   start_time: '',
   end_time: '',
-  break_time: 0
+  break_time: 0,
+  location: ''
 })
 
 const rulesRef = computed(() => ({
   resource_id: [{ required: true, message: t('shifts.selectResource'), trigger: 'change' }],
+  location: [{ required: true, message: t('shifts.selectLocation'), trigger: 'change' }],
   shift_code: [{ required: true, message: t('shifts.enterShiftCode'), trigger: 'blur' }],
   shift_name: [{ required: true, message: t('shifts.enterShiftName'), trigger: 'blur' }],
   start_time: [{ required: true, message: t('shifts.selectStartTime'), trigger: 'change' }],
@@ -189,6 +203,21 @@ const fetchResources = async () => {
   }
 }
 
+const fetchLocations = async () => {
+  try {
+    locations.value = await masterDataApi.getLocations()
+  } catch {
+    locations.value = []
+  }
+}
+
+const onShiftResourceChange = () => {
+  const rid = form.value.resource_id
+  if (!rid) return
+  const res = resources.value.find((r) => r.id === rid)
+  if (res?.location) form.value.location = res.location
+}
+
 const handleAdd = () => {
   isEdit.value = false
   editId.value = null
@@ -198,7 +227,8 @@ const handleAdd = () => {
     shift_name: '',
     start_time: '08:00',
     end_time: '17:00',
-    break_time: 60
+    break_time: 60,
+    location: locations.value[0]?.code || ''
   }
   dialogVisible.value = true
 }
@@ -264,9 +294,18 @@ const handleSaveShiftOrder = () => {
   shiftOrderDialogVisible.value = false
 }
 
+watch(
+  () => form.value.resource_id,
+  () => {
+    if (dialogVisible.value) onShiftResourceChange()
+  }
+)
+
 onMounted(() => {
-  fetchData()
-  fetchResources()
+  fetchLocations().then(() => {
+    fetchData()
+    fetchResources()
+  })
 })
 </script>
 
@@ -292,7 +331,10 @@ onMounted(() => {
   
   .header-buttons {
     display: flex;
+    align-items: center;
+    flex-wrap: wrap;
     gap: 12px;
+    justify-content: flex-end;
   }
 }
 

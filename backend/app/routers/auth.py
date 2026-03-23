@@ -80,6 +80,16 @@ def require_auth(
     return user
 
 
+def require_admin(user: models.User = Depends(require_auth)) -> models.User:
+    """要求当前用户为管理员"""
+    if not user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要管理员权限",
+        )
+    return user
+
+
 @router.post("/login")
 def login(username: str, password: str, db: Session = Depends(get_db)):
     """用户登录"""

@@ -47,6 +47,11 @@
             {{ row.product?.name || '-' }}
           </template>
         </el-table-column>
+        <el-table-column label="位置" min-width="90" align="center">
+          <template #default="{ row }">
+            {{ displayOrderLocation(row) }}
+          </template>
+        </el-table-column>
         <el-table-column prop="quantity" label="数量" min-width="70" align="right" />
         <el-table-column label="交货期" min-width="100">
           <template #default="{ row }">
@@ -111,7 +116,11 @@
     >
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="订单号" prop="order_number">
-          <el-input v-model="form.order_number" :disabled="isEdit" placeholder="请输入订单号" />
+          <el-input
+            v-model="form.order_number"
+            :disabled="isEdit"
+            :placeholder="isEdit ? '' : '留空则系统自动分配订单号'"
+          />
         </el-form-item>
         <el-form-item label="产品" prop="product_id">
           <el-select v-model="form.product_id" :disabled="isEdit" placeholder="请选择产品" style="width: 100%">
@@ -122,6 +131,10 @@
               :value="p.id" 
             />
           </el-select>
+        </el-form-item>
+        <el-form-item v-if="form.product_id" label="位置">
+          <el-input :model-value="productLocationForForm" disabled />
+          <div class="form-tip">保存订单时与产品主数据位置一致</div>
         </el-form-item>
         <el-form-item label="数量" prop="quantity">
           <el-input-number v-model="form.quantity" :min="1" :precision="0" style="width: 100%" />
@@ -213,6 +226,7 @@
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item label="交货期">{{ formatDate(currentOrder.due_date) }}</el-descriptions-item>
+        <el-descriptions-item label="位置">{{ displayOrderLocation(currentOrder) }}</el-descriptions-item>
         <el-descriptions-item label="确认开始" v-if="currentOrder.order_type === 'production'">
           {{ formatDateTime(currentOrder.confirmed_start) || '-' }}
         </el-descriptions-item>
@@ -272,6 +286,12 @@ const loading = computed(() => store.loading)
 const orders = computed(() => store.orders)
 const products = computed(() => store.products)
 
+const displayOrderLocation = (order) => {
+  if (!order) return '-'
+  const loc = order.location || order.product?.location
+  return loc && String(loc).trim() ? String(loc).trim() : '-'
+}
+
 const filterStatus = ref('')
 const filterOrderType = ref('')
 
@@ -302,8 +322,14 @@ const form = ref({
   description: ''
 })
 
+const productLocationForForm = computed(() => {
+  const pid = form.value.product_id
+  if (!pid) return '-'
+  const p = products.value.find((x) => x.id === pid)
+  return p?.location && String(p.location).trim() ? String(p.location).trim() : '-'
+})
+
 const rules = {
-  order_number: [{ required: true, message: '请输入订单号', trigger: 'blur' }],
   product_id: [{ required: true, message: '请选择产品', trigger: 'change' }],
   quantity: [{ required: true, message: '请输入数量', trigger: 'blur' }],
   due_date: [{ required: true, message: '请选择交货期', trigger: 'change' }]
@@ -401,7 +427,7 @@ const handleAdd = () => {
   editId.value = null
   const defaultDueDate = dayjs().add(7, 'day').hour(17).minute(0).second(0).toDate()
   form.value = { 
-    order_number: `PLN${Date.now().toString().slice(-8)}`,
+    order_number: '',
     order_type: 'planned',
     product_id: null, 
     quantity: 100, 
@@ -420,10 +446,15 @@ const handleEdit = (row) => {
   }
   isEdit.value = true
   editId.value = row.id
-  form.value = { 
-    ...row,
+  form.value = {
+    order_number: row.order_number,
+    order_type: row.order_type,
+    product_id: row.product_id,
+    quantity: row.quantity,
     due_date: row.due_date ? new Date(row.due_date) : null,
-    earliest_start: row.earliest_start ? new Date(row.earliest_start) : null
+    earliest_start: row.earliest_start ? new Date(row.earliest_start) : null,
+    priority: row.priority,
+    description: row.description || ''
   }
   dialogVisible.value = true
 }
@@ -482,12 +513,17 @@ const handleSubmit = async () => {
     submitting.value = true
     
     const data = {
-      ...form.value,
-      order_type: 'planned', // Always create as planned order
+      order_type: 'planned',
+      product_id: form.value.product_id,
+      quantity: form.value.quantity,
       due_date: form.value.due_date?.toISOString(),
-      earliest_start: form.value.earliest_start?.toISOString() || null
+      earliest_start: form.value.earliest_start?.toISOString() || null,
+      priority: form.value.priority,
+      description: form.value.description?.trim() ? form.value.description.trim() : null
     }
-    
+    if (!isEdit.value && form.value.order_number?.trim()) {
+      data.order_number = form.value.order_number.trim()
+    }
     if (isEdit.value) {
       await store.updateOrder(editId.value, data)
       ElMessage.success('更新成功')

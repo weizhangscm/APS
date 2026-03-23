@@ -16,11 +16,11 @@ export const useSchedulingStore = defineStore('scheduling', () => {
   const scheduleRefreshTrigger = ref(0)  // 外部触发刷新（如 We Agent 运行启发式后），详细计划表监听并刷新
 
   // Actions
-  async function fetchGanttData(viewType = 'order', startDate = null, endDate = null) {
+  async function fetchGanttData(viewType = 'order', startDate = null, endDate = null, locationParams = {}) {
     loading.value = true
     try {
       currentViewType.value = viewType
-      const data = await schedulingApi.getGanttData(viewType, startDate, endDate)
+      const data = await schedulingApi.getGanttData(viewType, startDate, endDate, locationParams)
       ganttData.value = data
       // 更新未保存更改状态
       if (data.has_unsaved_changes !== undefined) {
@@ -34,10 +34,10 @@ export const useSchedulingStore = defineStore('scheduling', () => {
   }
 
   // 获取产品视图甘特图数据
-  async function fetchProductGanttData(startDate = null, endDate = null) {
+  async function fetchProductGanttData(startDate = null, endDate = null, locationParams = {}) {
     loading.value = true
     try {
-      const data = await schedulingApi.getGanttData('product', startDate, endDate)
+      const data = await schedulingApi.getGanttData('product', startDate, endDate, locationParams)
       productGanttData.value = data
     } catch (error) {
       console.error('Failed to fetch product gantt data:', error)
@@ -182,6 +182,9 @@ export const useSchedulingStore = defineStore('scheduling', () => {
       if (options.dueDateEnd) params.due_date_end = options.dueDateEnd
       if (options.scheduleDateStart) params.schedule_date_start = options.scheduleDateStart
       if (options.scheduleDateEnd) params.schedule_date_end = options.scheduleDateEnd
+      if (options.productLocation) params.product_location = options.productLocation
+      if (options.resourceLocation) params.resource_location = options.resourceLocation
+      if (options.resourceIds?.length) params.resource_ids = options.resourceIds.join(',')
       kpiData.value = await schedulingApi.getKPI(params)
     } catch (error) {
       console.error('Failed to fetch KPI data:', error)

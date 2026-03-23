@@ -56,11 +56,12 @@ class SchedulingAlgorithm:
             return round(total, 2)
         return 9.0
     
-    def get_available_resources(self, work_center_id: int) -> List[models.Resource]:
-        """获取工作中心的可用资源"""
-        return self.db.query(models.Resource).filter(
-            models.Resource.work_center_id == work_center_id
-        ).all()
+    def get_available_resources(self, work_center_id: Optional[int]) -> List[models.Resource]:
+        """获取工作中心的可用资源；work_center_id 为空时取未关联工作中心的资源"""
+        q = self.db.query(models.Resource)
+        if work_center_id is None:
+            return q.filter(models.Resource.work_center_id.is_(None)).all()
+        return q.filter(models.Resource.work_center_id == work_center_id).all()
     
     def load_resource_schedule(self, start_date: datetime, end_date: datetime):
         """加载资源的已排程工序"""
@@ -110,9 +111,18 @@ class SchedulingAlgorithm:
         """
         if from_product_id is None or from_product_id == to_product_id:
             return 0.0
-        
+
+        from ..services.location_catalog import matrix_location_for_resource
+
+        resource_row = (
+            self.db.query(models.Resource)
+            .filter(models.Resource.id == resource_id)
+            .first()
+        )
+        matrix_loc = matrix_location_for_resource(resource_row)
+
         # 检查缓存
-        cache_key = (from_product_id, to_product_id, resource_id, work_center_id)
+        cache_key = (from_product_id, to_product_id, resource_id, work_center_id, matrix_loc)
         if cache_key in self.setup_matrix_cache:
             return self.setup_matrix_cache[cache_key]
         
@@ -147,11 +157,12 @@ class SchedulingAlgorithm:
         
         changeover_time = 0.0
         
-        # 1. 查找资源级别
+        # 1. 查找资源级别（含位置）
         entry = self.db.query(models.SetupMatrix).filter(
             models.SetupMatrix.from_setup_group_id == from_group_id,
             models.SetupMatrix.to_setup_group_id == to_group_id,
-            models.SetupMatrix.resource_id == resource_id
+            models.SetupMatrix.resource_id == resource_id,
+            models.SetupMatrix.location == matrix_loc,
         ).first()
         if entry:
             changeover_time = entry.changeover_time
@@ -161,7 +172,8 @@ class SchedulingAlgorithm:
                 models.SetupMatrix.from_setup_group_id == from_group_id,
                 models.SetupMatrix.to_setup_group_id == to_group_id,
                 models.SetupMatrix.work_center_id == work_center_id,
-                models.SetupMatrix.resource_id == None
+                models.SetupMatrix.resource_id == None,
+                models.SetupMatrix.location == matrix_loc,
             ).first()
             if entry:
                 changeover_time = entry.changeover_time
@@ -171,7 +183,8 @@ class SchedulingAlgorithm:
                     models.SetupMatrix.from_setup_group_id == from_group_id,
                     models.SetupMatrix.to_setup_group_id == to_group_id,
                     models.SetupMatrix.resource_id == None,
-                    models.SetupMatrix.work_center_id == None
+                    models.SetupMatrix.work_center_id == None,
+                    models.SetupMatrix.location == matrix_loc,
                 ).first()
                 if entry:
                     changeover_time = entry.changeover_time

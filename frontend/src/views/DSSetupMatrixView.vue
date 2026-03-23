@@ -2,6 +2,10 @@
   <div class="setup-matrix-view">
     <div class="page-header">
       <h2>{{ t('dsSetupMatrix.title') }}</h2>
+      <DataExcelToolbar
+        :entities="setupMatrixExcelEntities"
+        @imported="loadData"
+      />
     </div>
 
     <el-tabs v-model="activeTab" type="card" class="m3-tabs">
@@ -95,6 +99,22 @@
             @change="loadMatrixGrid"
           >
             <el-option v-for="r in resources" :key="r.id" :label="`${r.code} - ${r.name}`" :value="r.id" />
+          </el-select>
+
+          <el-select
+            v-if="matrixScope === 'global' || matrixScope === 'work_center'"
+            v-model="matrixLocationCode"
+            :placeholder="t('dsSetupMatrix.selectMatrixLocation')"
+            filterable
+            style="width: 220px; margin-left: 12px;"
+            @change="loadMatrixGrid"
+          >
+            <el-option
+              v-for="loc in locationMasters"
+              :key="loc.code"
+              :label="loc.description ? `${loc.code} — ${loc.description}` : loc.code"
+              :value="loc.code"
+            />
           </el-select>
 
           <el-button type="primary" style="margin-left: 16px;" @click="saveMatrix" :loading="saving">
@@ -199,10 +219,11 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Check } from '@element-plus/icons-vue'
-import { setupMatrixApi } from '@/api'
+import { setupMatrixApi, masterDataApi } from '@/api'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useDSFiltersStore } from '@/stores/dsFilters'
 import { useI18nStore } from '@/stores/i18n'
+import DataExcelToolbar from '@/components/DataExcelToolbar.vue'
 
 const i18nStore = useI18nStore()
 const t = (key) => i18nStore.t(key)
@@ -210,6 +231,12 @@ const masterStore = useMasterDataStore()
 const dsFiltersStore = useDSFiltersStore()
 
 // 状态
+const setupMatrixExcelEntities = [
+  { id: 'setup_groups', labelKey: 'dataManagement.setupGroups' },
+  { id: 'product_setup_groups', labelKey: 'dataManagement.productSetupGroups' },
+  { id: 'setup_matrix', labelKey: 'dataManagement.setupMatrix' }
+]
+
 const loading = ref(false)
 const saving = ref(false)
 const activeTab = ref('groups')
@@ -230,6 +257,8 @@ const filterWorkCenterId = ref(null)
 const matrixScope = ref('global')
 const selectedWorkCenterId = ref(null)
 const selectedResourceId = ref(null)
+const matrixLocationCode = ref('1001')
+const locationMasters = ref([])
 
 // 对话框
 const groupDialogVisible = ref(false)
@@ -285,6 +314,16 @@ async function loadData() {
     products.value = masterStore.products || []
     workCenters.value = masterStore.workCenters || []
     resources.value = masterStore.resources || []
+
+    try {
+      locationMasters.value = await masterDataApi.getLocations()
+      const codes = new Set((locationMasters.value || []).map((l) => l.code))
+      if (!codes.has(matrixLocationCode.value)) {
+        matrixLocationCode.value = codes.has('1001') ? '1001' : locationMasters.value[0]?.code || '1001'
+      }
+    } catch {
+      locationMasters.value = []
+    }
     
     // 同步到共享store，供详细计划表使用
     dsFiltersStore.setDSSetupGroups(groupsRes || [])
@@ -306,13 +345,17 @@ async function loadMatrixGrid() {
     let resourceId = null
     let workCenterId = null
     
+    let gridLocation = null
     if (matrixScope.value === 'resource' && selectedResourceId.value) {
       resourceId = selectedResourceId.value
     } else if (matrixScope.value === 'work_center' && selectedWorkCenterId.value) {
       workCenterId = selectedWorkCenterId.value
+      gridLocation = matrixLocationCode.value || '1001'
+    } else if (matrixScope.value === 'global') {
+      gridLocation = matrixLocationCode.value || '1001'
     }
-    
-    const grid = await setupMatrixApi.getMatrixGrid(resourceId, workCenterId)
+
+    const grid = await setupMatrixApi.getMatrixGrid(resourceId, workCenterId, gridLocation)
     matrixGrid.value = grid
     
     // 初始化矩阵值
@@ -428,6 +471,14 @@ async function handleDeleteAssignment(assignment) {
 }
 
 // 保存矩阵
+function batchMatrixLocation() {
+  if (matrixScope.value === 'resource' && selectedResourceId.value) {
+    const r = resources.value.find((x) => x.id === selectedResourceId.value)
+    return (r?.location && String(r.location).trim()) || '1001'
+  }
+  return matrixLocationCode.value || '1001'
+}
+
 async function saveMatrix() {
   saving.value = true
   try {
@@ -441,6 +492,8 @@ async function saveMatrix() {
     } else if (matrixScope.value === 'work_center' && selectedWorkCenterId.value) {
       workCenterId = selectedWorkCenterId.value
     }
+
+    const loc = batchMatrixLocation()
     
     for (const fromGroupId in matrixValues) {
       for (const toGroupId in matrixValues[fromGroupId]) {
@@ -451,7 +504,8 @@ async function saveMatrix() {
             to_setup_group_id: parseInt(toGroupId),
             resource_id: resourceId,
             work_center_id: workCenterId,
-            changeover_time: value
+            changeover_time: value,
+            location: loc
           })
         }
       }
@@ -470,6 +524,7 @@ async function saveMatrix() {
 watch(matrixScope, () => {
   selectedWorkCenterId.value = null
   selectedResourceId.value = null
+  matrixLocationCode.value = '1001'
   if (matrixScope.value === 'global') {
     loadMatrixGrid()
   }
@@ -486,10 +541,15 @@ onMounted(() => {
 }
 
 .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-bottom: 24px;
   
   h2 {
-    margin: 0 0 8px 0;
+    margin: 0;
     font-size: 24px;
     font-weight: 500;
     color: var(--m3-on-surface);

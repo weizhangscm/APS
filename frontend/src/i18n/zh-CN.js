@@ -10,6 +10,7 @@ export default {
     kpiDashboard: 'KPI仪表板',
     masterDataManagement: '主数据管理',
     businessDataManagement: '业务数据管理',
+    locations: '位置',
     resources: '资源',
     shifts: '班次',
     products: '产品',
@@ -18,10 +19,23 @@ export default {
     productionOrders: '生产/计划订单'
   },
 
+  locations: {
+    add: '新增位置',
+    edit: '编辑位置',
+    code: '位置代码',
+    description: '描述',
+    createdAt: '创建时间',
+    enterCode: '请输入位置代码',
+    enterDescription: '可选，位置说明',
+    loadFailed: '加载位置失败',
+    confirmDelete: '确定删除位置 "{code}"？'
+  },
+
   // 用户相关
   user: {
     profile: '个人信息',
     changePassword: '修改密码',
+    clearDataAdminOnly: '仅管理员可访问数据库管理',
     databaseManagement: '数据库管理',
     logout: '退出登录',
     admin: '管理员',
@@ -29,6 +43,15 @@ export default {
     confirmLogout: '确定要退出登录吗？',
     logoutSuccess: '已退出登录',
     profileComingSoon: '个人信息功能开发中'
+  },
+
+  dataExcel: {
+    downloadTemplate: '下载模板',
+    uploadData: '上传数据',
+    downloadFailed: '模板下载失败',
+    importSuccess: '导入成功，共 {n} 条',
+    importPartial: '导入结束：成功 {ok} 条，失败 {fail} 条',
+    importFailed: '导入失败'
   },
 
   dataManagement: {
@@ -42,6 +65,12 @@ export default {
     confirmAll: '确定要清空全部数据吗？该操作不可恢复。',
     clearSuccess: '清空成功',
     lastResult: '最近一次结果',
+    selectAtLeastOne: '请至少勾选一种要清空的数据类型',
+    columnType: '数据类型',
+    columnDependency: '依赖说明',
+    reloadApp: '刷新页面（同步界面数据）',
+    locations: '位置',
+    locationsDesc: 'locations（位置主数据；1001 为系统默认，不可删除）',
     workCenters: '工作中心',
     workCentersDesc: 'work_centers（清空会级联清空资源/班次等依赖）',
     resources: '资源',
@@ -130,6 +159,10 @@ export default {
     refreshData: '刷新数据',
     refreshView: '刷新视图',
     dateRange: '日期区间',
+    location: '位置',
+    allLocations: '全部位置',
+    resource: '资源',
+    allResources: '全部资源',
     shortcuts: {
       thisWeek: '本周',
       thisMonth: '本月',
@@ -157,6 +190,8 @@ export default {
   // 详细调度视图
   dsView: {
     displayRange: '显示区间',
+    location: '位置',
+    allLocations: '全部位置',
     required: '必填',
     startDate: '开始日期',
     endDate: '结束日期',
@@ -390,6 +425,11 @@ export default {
     selectResource: '选择资源',
     type: '类型',
     product: '产品',
+    location: '位置',
+    locationFromProductHint: '与所选产品主数据位置一致，保存订单时由后端写入',
+    allLocations: '全部位置',
+    adjustFilters: '调整过滤器',
+    adjustFiltersHint: '勾选要在筛选区显示的项；取消勾选的筛选项将被隐藏，其当前条件会清空。',
     quantity: '数量',
     estimatedFinishTime: '预计完工时间',
     isDelayed: '是否延期',
@@ -436,6 +476,7 @@ export default {
     createFailed: '创建失败',
     cancelled: '已取消',
     orderNumberRequired: '请输入订单号',
+    orderNumberOptionalPlaceholder: '留空则系统自动分配订单号',
     productRequired: '请选择产品',
     quantityRequired: '请输入数量',
     dueDateRequired: '请选择交货期',
@@ -464,6 +505,8 @@ export default {
     startTime: '开始时间',
     endTime: '结束时间',
     breakTime: '休息时间(分钟)',
+    location: '位置',
+    selectLocation: '请选择位置',
     selectResource: '请选择资源',
     selectStartTime: '选择开始时间',
     selectEndTime: '选择结束时间',
@@ -577,6 +620,8 @@ export default {
     modifyFilter: '修改筛选',
     productCode: '产品标识',
     productName: '产品名称',
+    location: '位置',
+    selectLocation: '请选择位置',
     operationCount: '工序数',
     operations: '工序',
     addOperation: '新增工序',
@@ -612,6 +657,8 @@ export default {
     resource: '资源',
     selectWorkCenter: '选择工作中心',
     selectResource: '选择资源',
+    matrixLocation: '矩阵位置',
+    selectMatrixLocation: '位置（全局/工作中心）',
     saveMatrix: '保存矩阵',
     description: '说明',
     matrixExplanation: '行表示"从"切换组，列表示"到"切换组。单元格值为切换时间（小时）。',

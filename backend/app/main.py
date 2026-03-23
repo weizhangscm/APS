@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
 from .database import init_db, SessionLocal
-from .routers import master_data, orders, scheduling, setup_matrix, auth, chatbot
+from .routers import master_data, orders, scheduling, setup_matrix, auth, chatbot, data_management
 
 
 @asynccontextmanager
@@ -46,6 +46,7 @@ app.include_router(orders.router, prefix="/api/orders", tags=["生产订单"])
 app.include_router(scheduling.router, prefix="/api/scheduling", tags=["排程管理"])
 app.include_router(setup_matrix.router, prefix="/api/setup-matrix", tags=["切换矩阵"])
 app.include_router(chatbot.router, prefix="/api/chatbot", tags=["聊天机器人"])
+app.include_router(data_management.router, prefix="/api/data-management", tags=["数据管理"])
 
 
 @app.get("/")

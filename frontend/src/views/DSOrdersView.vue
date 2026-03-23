@@ -5,16 +5,22 @@
         <el-icon><Document /></el-icon>
         {{ t('orders.productionPlanningOrders') }}
       </h1>
-      <el-button type="primary" @click="handleAdd">
-        <el-icon><Plus /></el-icon>
-        {{ t('orders.addPlannedOrder') }}
-      </el-button>
+      <div class="header-actions">
+        <DataExcelToolbar
+          :entities="[{ id: 'production_orders', labelKey: 'dataManagement.productionOrders' }]"
+          @imported="fetchData"
+        />
+        <el-button type="primary" @click="handleAdd">
+          <el-icon><Plus /></el-icon>
+          {{ t('orders.addPlannedOrder') }}
+        </el-button>
+      </div>
     </div>
     
     <!-- Filter -->
     <el-card class="filter-card">
-      <el-form :inline="true">
-        <el-form-item :label="t('orders.orderNumber')">
+      <el-form :inline="true" class="filter-form">
+        <el-form-item v-if="filterVisibility.orderNumber" :label="t('orders.orderNumber')">
           <el-input
             v-model="filterOrderNumber"
             :placeholder="t('orders.enterOrderNumber')"
@@ -27,13 +33,30 @@
             </template>
           </el-input>
         </el-form-item>
-        <el-form-item :label="t('orders.orderType')">
+        <el-form-item v-if="filterVisibility.location" :label="t('orders.location')">
+          <el-select
+            v-model="filterLocation"
+            :placeholder="t('orders.allLocations')"
+            clearable
+            filterable
+            style="width: 170px"
+            @change="fetchData"
+          >
+            <el-option
+              v-for="loc in locationOptions"
+              :key="loc.code"
+              :label="orderLocationOptionLabel(loc)"
+              :value="loc.code"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item v-if="filterVisibility.orderType" :label="t('orders.orderType')">
           <el-select v-model="filterOrderType" :placeholder="t('orders.allTypes')" clearable style="width: 150px" @change="fetchData">
             <el-option :label="t('orders.plannedOrder')" value="planned" />
             <el-option :label="t('orders.productionOrder')" value="production" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('orders.statusFilter')">
+        <el-form-item v-if="filterVisibility.status" :label="t('orders.statusFilter')">
           <el-select v-model="filterStatus" :placeholder="t('orders.allStatuses')" clearable style="width: 150px" @change="fetchData">
             <el-option :label="t('orders.pendingSchedule')" value="created" />
             <el-option :label="t('orders.scheduled')" value="scheduled" />
@@ -41,13 +64,13 @@
             <el-option :label="t('orders.completed')" value="completed" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('orders.isDelayed')">
+        <el-form-item v-if="filterVisibility.delayed" :label="t('orders.isDelayed')">
           <el-select v-model="filterDelayed" :placeholder="t('orders.all')" clearable style="width: 120px">
             <el-option :label="t('orders.yes')" :value="true" />
             <el-option :label="t('orders.no')" :value="false" />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('orders.dueDate')">
+        <el-form-item v-if="filterVisibility.dueDate" :label="t('orders.dueDate')">
           <el-date-picker
             v-model="filterDueDateRange"
             type="daterange"
@@ -60,7 +83,7 @@
             clearable
           />
         </el-form-item>
-        <el-form-item :label="t('orders.resource')">
+        <el-form-item v-if="filterVisibility.resource" :label="t('orders.resource')">
           <el-select
             v-model="filterResourceId"
             :placeholder="t('orders.selectResource')"
@@ -76,8 +99,35 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item class="filter-actions-item">
+          <el-button :icon="Setting" @click="openAdjustFiltersDialog">
+            {{ t('orders.adjustFilters') }}
+          </el-button>
+        </el-form-item>
       </el-form>
     </el-card>
+
+    <el-dialog
+      v-model="adjustFiltersDialogVisible"
+      :title="t('orders.adjustFilters')"
+      width="420px"
+      destroy-on-close
+    >
+      <p class="adjust-filters-hint">{{ t('orders.adjustFiltersHint') }}</p>
+      <div class="filter-visibility-checks">
+        <el-checkbox v-model="filterVisibilityDraft.orderNumber">{{ t('orders.orderNumber') }}</el-checkbox>
+        <el-checkbox v-model="filterVisibilityDraft.location">{{ t('orders.location') }}</el-checkbox>
+        <el-checkbox v-model="filterVisibilityDraft.orderType">{{ t('orders.orderType') }}</el-checkbox>
+        <el-checkbox v-model="filterVisibilityDraft.status">{{ t('orders.statusFilter') }}</el-checkbox>
+        <el-checkbox v-model="filterVisibilityDraft.delayed">{{ t('orders.isDelayed') }}</el-checkbox>
+        <el-checkbox v-model="filterVisibilityDraft.dueDate">{{ t('orders.dueDate') }}</el-checkbox>
+        <el-checkbox v-model="filterVisibilityDraft.resource">{{ t('orders.resource') }}</el-checkbox>
+      </div>
+      <template #footer>
+        <el-button @click="adjustFiltersDialogVisible = false">{{ t('common.cancel') }}</el-button>
+        <el-button type="primary" @click="confirmAdjustFilters">{{ t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
     
     <!-- Orders Table -->
     <el-card>
@@ -93,6 +143,11 @@
         <el-table-column :label="t('orders.product')" min-width="120">
           <template #default="{ row }">
             {{ row.product?.name || '-' }}
+          </template>
+        </el-table-column>
+        <el-table-column :label="t('orders.location')" min-width="90" align="center">
+          <template #default="{ row }">
+            {{ displayOrderLocation(row) }}
           </template>
         </el-table-column>
         <el-table-column prop="quantity" :label="t('orders.quantity')" min-width="70" align="right" />
@@ -166,7 +221,11 @@
     >
       <el-form ref="formRef" :model="form" :rules="rulesRef" label-width="100px">
         <el-form-item :label="t('orders.orderNumber')" prop="order_number">
-          <el-input v-model="form.order_number" :disabled="isEdit" :placeholder="t('orders.orderNumberRequired')" />
+          <el-input
+            v-model="form.order_number"
+            :disabled="isEdit"
+            :placeholder="isEdit ? '' : t('orders.orderNumberOptionalPlaceholder')"
+          />
         </el-form-item>
         <el-form-item :label="t('orders.product')" prop="product_id">
           <el-select v-model="form.product_id" :disabled="isEdit" :placeholder="t('orders.selectProduct')" style="width: 100%">
@@ -177,6 +236,10 @@
               :value="p.id" 
             />
           </el-select>
+        </el-form-item>
+        <el-form-item v-if="form.product_id" :label="t('orders.location')">
+          <el-input :model-value="productLocationForForm" disabled />
+          <div class="form-tip">{{ t('orders.locationFromProductHint') }}</div>
         </el-form-item>
         <el-form-item :label="t('orders.quantity')" prop="quantity">
           <el-input-number v-model="form.quantity" :min="1" :precision="0" style="width: 100%" />
@@ -268,6 +331,9 @@
           </el-tag>
         </el-descriptions-item>
         <el-descriptions-item :label="t('orders.dueDate')">{{ formatDate(currentOrder.due_date) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('orders.location')">
+          {{ displayOrderLocation(currentOrder) }}
+        </el-descriptions-item>
         <el-descriptions-item :label="t('orders.confirmedStart')" v-if="currentOrder.order_type === 'production'">
           {{ formatDateTime(currentOrder.confirmed_start) || '-' }}
         </el-descriptions-item>
@@ -315,13 +381,38 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useDSFiltersStore } from '@/stores/dsFilters'
 import { useI18nStore } from '@/stores/i18n'
-import { ordersApi } from '@/api'
+import { ordersApi, masterDataApi } from '@/api'
+import DataExcelToolbar from '@/components/DataExcelToolbar.vue'
 import dayjs from 'dayjs'
+import { Setting } from '@element-plus/icons-vue'
+
+const ORDERS_FILTER_VISIBILITY_KEY = 'ds_orders_filter_visibility'
+
+const defaultFilterVisibility = () => ({
+  orderNumber: true,
+  location: true,
+  orderType: true,
+  status: true,
+  delayed: true,
+  dueDate: true,
+  resource: true
+})
+
+const loadFilterVisibility = () => {
+  try {
+    const raw = localStorage.getItem(ORDERS_FILTER_VISIBILITY_KEY)
+    if (!raw) return defaultFilterVisibility()
+    const parsed = JSON.parse(raw)
+    return { ...defaultFilterVisibility(), ...parsed }
+  } catch {
+    return defaultFilterVisibility()
+  }
+}
 
 const store = useMasterDataStore()
 const dsFiltersStore = useDSFiltersStore()
@@ -332,6 +423,12 @@ const loading = computed(() => dsFiltersStore.ordersLoading)
 const products = computed(() => store.products)
 const routings = computed(() => store.routings)
 const resources = computed(() => store.resources)
+
+const displayOrderLocation = (order) => {
+  if (!order) return '-'
+  const loc = order.location || order.product?.location
+  return loc && String(loc).trim() ? String(loc).trim() : '-'
+}
 
 // 根据产品ID获取对应的工艺路线
 const getRoutingByProductId = (productId) => {
@@ -382,6 +479,60 @@ const filterDueDateRange = ref(null)
 const filterOrderNumber = ref('')
 const filterResourceId = ref(null)
 const filterDelayed = ref(null)
+const filterLocation = ref('')
+const locationOptions = ref([])
+
+const filterVisibility = reactive(loadFilterVisibility())
+const adjustFiltersDialogVisible = ref(false)
+const filterVisibilityDraft = reactive(defaultFilterVisibility())
+
+const persistFilterVisibility = () => {
+  try {
+    localStorage.setItem(
+      ORDERS_FILTER_VISIBILITY_KEY,
+      JSON.stringify({ ...filterVisibility })
+    )
+  } catch (e) {
+    console.warn('Failed to persist filter visibility:', e)
+  }
+}
+
+const openAdjustFiltersDialog = () => {
+  Object.assign(filterVisibilityDraft, filterVisibility)
+  adjustFiltersDialogVisible.value = true
+}
+
+const confirmAdjustFilters = () => {
+  const d = filterVisibilityDraft
+  if (!d.orderNumber) filterOrderNumber.value = ''
+  if (!d.location) {
+    filterLocation.value = ''
+    fetchData()
+  }
+  if (!d.orderType) filterOrderType.value = ''
+  if (!d.status) filterStatus.value = ''
+  if (!d.delayed) filterDelayed.value = null
+  if (!d.dueDate) filterDueDateRange.value = null
+  if (!d.resource) filterResourceId.value = null
+  Object.assign(filterVisibility, d)
+  persistFilterVisibility()
+  adjustFiltersDialogVisible.value = false
+}
+
+const orderLocationOptionLabel = (loc) => {
+  if (!loc) return ''
+  const d = (loc.description || '').trim()
+  return d ? `${loc.code} · ${d}` : loc.code
+}
+
+const loadOrderLocationOptions = async () => {
+  try {
+    locationOptions.value = (await masterDataApi.getLocations()) || []
+  } catch (e) {
+    console.error('Failed to load locations:', e)
+    locationOptions.value = []
+  }
+}
 
 // 判断订单是否延期
 // 规则：预计完工时间晚于「交货期当天结束」才算延期；同一天内完工视为准时（交期按“天”理解）
@@ -526,7 +677,9 @@ const dueDateShortcuts = computed(() => [
 const fetchData = () => {
   // 使用共享的dsFiltersStore来获取订单数据
   // 注意：不再传递 filterStatus 和 filterOrderType 给后端，因为这些筛选在前端完成
-  dsFiltersStore.fetchDSOrders(null, null)
+  dsFiltersStore.fetchDSOrders(null, null, {
+    filterLocation: filterLocation.value
+  })
 }
 
 // Order form
@@ -547,8 +700,14 @@ const form = ref({
   description: ''
 })
 
+const productLocationForForm = computed(() => {
+  const pid = form.value.product_id
+  if (!pid) return '-'
+  const p = products.value.find((x) => x.id === pid)
+  return p?.location && String(p.location).trim() ? String(p.location).trim() : '-'
+})
+
 const rulesRef = computed(() => ({
-  order_number: [{ required: true, message: t('orders.orderNumberRequired'), trigger: 'blur' }],
   product_id: [{ required: true, message: t('orders.productRequired'), trigger: 'change' }],
   quantity: [{ required: true, message: t('orders.quantityRequired'), trigger: 'blur' }],
   due_date: [{ required: true, message: t('orders.dueDateRequired'), trigger: 'change' }]
@@ -652,7 +811,7 @@ const handleAdd = () => {
   editId.value = null
   const defaultDueDate = dayjs().add(7, 'day').hour(17).minute(0).second(0).toDate()
   form.value = { 
-    order_number: `PLN${Date.now().toString().slice(-8)}`,
+    order_number: '',
     order_type: 'planned',
     product_id: null, 
     quantity: 100, 
@@ -671,10 +830,15 @@ const handleEdit = (row) => {
   }
   isEdit.value = true
   editId.value = row.id
-  form.value = { 
-    ...row,
+  form.value = {
+    order_number: row.order_number,
+    order_type: row.order_type,
+    product_id: row.product_id,
+    quantity: row.quantity,
     due_date: row.due_date ? new Date(row.due_date) : null,
-    earliest_start: row.earliest_start ? new Date(row.earliest_start) : null
+    earliest_start: row.earliest_start ? new Date(row.earliest_start) : null,
+    priority: row.priority,
+    description: row.description || ''
   }
   dialogVisible.value = true
 }
@@ -689,6 +853,7 @@ const handleDelete = async (row) => {
     })
     await store.deleteOrder(row.id)
     ElMessage.success(t('orders.deleteSuccess'))
+    await fetchData()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(t('orders.deleteFailed'))
@@ -733,12 +898,17 @@ const handleSubmit = async () => {
     submitting.value = true
     
     const data = {
-      ...form.value,
-      order_type: 'planned', // Always create as planned order
+      order_type: 'planned',
+      product_id: form.value.product_id,
+      quantity: form.value.quantity,
       due_date: form.value.due_date?.toISOString(),
-      earliest_start: form.value.earliest_start?.toISOString() || null
+      earliest_start: form.value.earliest_start?.toISOString() || null,
+      priority: form.value.priority,
+      description: form.value.description?.trim() ? form.value.description.trim() : null
     }
-    
+    if (!isEdit.value && form.value.order_number?.trim()) {
+      data.order_number = form.value.order_number.trim()
+    }
     if (isEdit.value) {
       await store.updateOrder(editId.value, data)
       ElMessage.success(t('orders.updateSuccess'))
@@ -746,8 +916,9 @@ const handleSubmit = async () => {
       await store.createOrder(data)
       ElMessage.success(t('orders.createSuccess'))
     }
-    
+
     dialogVisible.value = false
+    await fetchData()
   } catch (error) {
     if (error !== false) {
       ElMessage.error(isEdit.value ? t('orders.updateFailed') : t('orders.createFailed'))
@@ -762,7 +933,8 @@ const handleViewOperations = (order) => {
   opsDialogVisible.value = true
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadOrderLocationOptions()
   fetchData()
   store.fetchProducts()
   store.fetchRoutings()  // 加载工艺路线数据，用于获取工序的资源信息
@@ -773,6 +945,23 @@ onMounted(() => {
 <style lang="scss" scoped>
 .orders-page {
   min-height: calc(100vh - 100px);
+
+  .page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 16px;
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+  }
 }
 
 .filter-card {
@@ -785,6 +974,23 @@ onMounted(() => {
   :deep(.el-form-item) {
     margin-bottom: 0;
   }
+
+  .filter-actions-item {
+    margin-right: 0;
+  }
+}
+
+.adjust-filters-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: #606266;
+  line-height: 1.5;
+}
+
+.filter-visibility-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .text-muted {

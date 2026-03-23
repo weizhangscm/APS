@@ -1,11 +1,77 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session, joinedload
-from typing import List
+from typing import List, Optional
 
 from ..database import get_db
 from .. import models, schemas
+from ..services.location_catalog import (
+    normalize_location_code,
+    optional_location_code,
+    require_location_code,
+)
 
 router = APIRouter()
+
+
+# ==================== Locations 位置主数据 ====================
+
+
+@router.get("/locations", response_model=List[schemas.Location])
+def get_locations(skip: int = 0, limit: int = 500, db: Session = Depends(get_db)):
+    return (
+        db.query(models.Location)
+        .order_by(models.Location.code)
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+@router.get("/locations/{code}", response_model=schemas.Location)
+def get_location(code: str, db: Session = Depends(get_db)):
+    row = db.query(models.Location).filter(models.Location.code == code).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="位置不存在")
+    return row
+
+
+@router.post("/locations", response_model=schemas.Location)
+def create_location(loc: schemas.LocationCreate, db: Session = Depends(get_db)):
+    c = normalize_location_code(loc.code)
+    if not c:
+        raise HTTPException(status_code=422, detail="位置代码不能为空")
+    if db.query(models.Location).filter(models.Location.code == c).first():
+        raise HTTPException(status_code=400, detail="位置代码已存在")
+    row = models.Location(code=c, description=loc.description)
+    db.add(row)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.put("/locations/{code}", response_model=schemas.Location)
+def update_location(code: str, loc: schemas.LocationUpdate, db: Session = Depends(get_db)):
+    row = db.query(models.Location).filter(models.Location.code == code).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="位置不存在")
+    data = loc.model_dump(exclude_unset=True)
+    for k, v in data.items():
+        setattr(row, k, v)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@router.delete("/locations/{code}")
+def delete_location(code: str, db: Session = Depends(get_db)):
+    row = db.query(models.Location).filter(models.Location.code == code).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="位置不存在")
+    if code == "1001":
+        raise HTTPException(status_code=400, detail="不能删除系统默认位置 1001")
+    db.delete(row)
+    db.commit()
+    return {"message": "位置已删除"}
 
 
 # ==================== Work Centers ====================
@@ -72,15 +138,20 @@ def delete_work_center(work_center_id: int, db: Session = Depends(get_db)):
 
 @router.get("/resources", response_model=List[schemas.ResourceWithWorkCenter])
 def get_resources(
-    skip: int = 0, 
-    limit: int = 100, 
+    skip: int = 0,
+    limit: int = 100,
     work_center_id: int = None,
-    db: Session = Depends(get_db)
+    location: str = None,
+    db: Session = Depends(get_db),
 ):
     """获取所有资源"""
     query = db.query(models.Resource).options(joinedload(models.Resource.work_center))
     if work_center_id:
         query = query.filter(models.Resource.work_center_id == work_center_id)
+    if location:
+        loc = normalize_location_code(location)
+        if loc:
+            query = query.filter(models.Resource.location == loc)
     return query.offset(skip).limit(limit).all()
 
 
@@ -102,13 +173,11 @@ def create_resource(resource: schemas.ResourceCreate, db: Session = Depends(get_
     existing = db.query(models.Resource).filter(models.Resource.code == resource.code).first()
     if existing:
         raise HTTPException(status_code=400, detail="资源编码已存在")
-    
-    # Check if work center exists
-    work_center = db.query(models.WorkCenter).filter(models.WorkCenter.id == resource.work_center_id).first()
-    if not work_center:
-        raise HTTPException(status_code=400, detail="工作中心不存在")
-    
-    db_resource = models.Resource(**resource.model_dump())
+
+    data = resource.model_dump()
+    if data.get("location"):
+        data["location"] = optional_location_code(db, data["location"], "资源位置")
+    db_resource = models.Resource(**data)
     db.add(db_resource)
     db.commit()
     db.refresh(db_resource)
@@ -123,9 +192,15 @@ def update_resource(resource_id: int, resource: schemas.ResourceUpdate, db: Sess
         raise HTTPException(status_code=404, detail="资源不存在")
     
     update_data = resource.model_dump(exclude_unset=True)
+    if "location" in update_data and update_data["location"]:
+        update_data["location"] = optional_location_code(
+            db, update_data["location"], "资源位置"
+        )
+    elif "location" in update_data and update_data["location"] in ("", None):
+        update_data["location"] = None
     for key, value in update_data.items():
         setattr(db_resource, key, value)
-    
+
     db.commit()
     db.refresh(db_resource)
     return db_resource
@@ -176,7 +251,13 @@ def create_shift(shift: schemas.ShiftCreate, db: Session = Depends(get_db)):
     resource = db.query(models.Resource).filter(models.Resource.id == shift.resource_id).first()
     if not resource:
         raise HTTPException(status_code=400, detail="资源不存在")
-    db_shift = models.Shift(**shift.model_dump())
+    loc = require_location_code(db, shift.location, "班次位置")
+    rloc = normalize_location_code(resource.location)
+    if rloc and loc != rloc:
+        raise HTTPException(status_code=400, detail="班次位置须与所属资源位置一致")
+    data = shift.model_dump()
+    data["location"] = loc
+    db_shift = models.Shift(**data)
     db.add(db_shift)
     db.commit()
     db.refresh(db_shift)
@@ -197,8 +278,24 @@ def update_shift(shift_id: int, shift: schemas.ShiftUpdate, db: Session = Depend
         resource = db.query(models.Resource).filter(models.Resource.id == update_data["resource_id"]).first()
         if not resource:
             raise HTTPException(status_code=400, detail="资源不存在")
+    if "location" in update_data:
+        if not update_data["location"] or not str(update_data["location"]).strip():
+            raise HTTPException(status_code=422, detail="班次位置不能为空")
+        update_data["location"] = require_location_code(
+            db, update_data["location"], "班次位置"
+        )
     for key, value in update_data.items():
         setattr(db_shift, key, value)
+    res = (
+        db.query(models.Resource)
+        .filter(models.Resource.id == db_shift.resource_id)
+        .first()
+    )
+    if res:
+        rloc = normalize_location_code(res.location)
+        sloc = normalize_location_code(db_shift.location)
+        if rloc and sloc and rloc != sloc:
+            raise HTTPException(status_code=400, detail="班次位置须与所属资源位置一致")
     db.commit()
     db.refresh(db_shift)
     return db.query(models.Shift).options(
@@ -220,9 +317,19 @@ def delete_shift(shift_id: int, db: Session = Depends(get_db)):
 # ==================== Products ====================
 
 @router.get("/products", response_model=List[schemas.Product])
-def get_products(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+def get_products(
+    skip: int = 0,
+    limit: int = 100,
+    location: str = None,
+    db: Session = Depends(get_db),
+):
     """获取所有产品"""
-    return db.query(models.Product).offset(skip).limit(limit).all()
+    q = db.query(models.Product)
+    if location:
+        loc = normalize_location_code(location)
+        if loc:
+            q = q.filter(models.Product.location == loc)
+    return q.offset(skip).limit(limit).all()
 
 
 @router.get("/products/{product_id}", response_model=schemas.Product)
@@ -240,8 +347,11 @@ def create_product(product: schemas.ProductCreate, db: Session = Depends(get_db)
     existing = db.query(models.Product).filter(models.Product.code == product.code).first()
     if existing:
         raise HTTPException(status_code=400, detail="产品编码已存在")
-    
-    db_product = models.Product(**product.model_dump())
+
+    data = product.model_dump()
+    if data.get("location"):
+        data["location"] = optional_location_code(db, data["location"], "产品位置")
+    db_product = models.Product(**data)
     db.add(db_product)
     db.commit()
     db.refresh(db_product)
@@ -256,9 +366,15 @@ def update_product(product_id: int, product: schemas.ProductUpdate, db: Session 
         raise HTTPException(status_code=404, detail="产品不存在")
     
     update_data = product.model_dump(exclude_unset=True)
+    if "location" in update_data and update_data["location"]:
+        update_data["location"] = optional_location_code(
+            db, update_data["location"], "产品位置"
+        )
+    elif "location" in update_data and update_data["location"] in ("", None):
+        update_data["location"] = None
     for key, value in update_data.items():
         setattr(db_product, key, value)
-    
+
     db.commit()
     db.refresh(db_product)
     return db_product
@@ -280,19 +396,24 @@ def delete_product(product_id: int, db: Session = Depends(get_db)):
 
 @router.get("/routings", response_model=List[schemas.RoutingWithOperations])
 def get_routings(
-    skip: int = 0, 
-    limit: int = 100, 
+    skip: int = 0,
+    limit: int = 100,
     product_id: int = None,
-    db: Session = Depends(get_db)
+    location: str = None,
+    db: Session = Depends(get_db),
 ):
     """获取所有工艺路线"""
     query = db.query(models.Routing).options(
         joinedload(models.Routing.product),
         joinedload(models.Routing.operations).joinedload(models.RoutingOperation.work_center),
-        joinedload(models.Routing.operations).joinedload(models.RoutingOperation.resource)
+        joinedload(models.Routing.operations).joinedload(models.RoutingOperation.resource),
     )
     if product_id:
         query = query.filter(models.Routing.product_id == product_id)
+    if location:
+        loc = normalize_location_code(location)
+        if loc:
+            query = query.filter(models.Routing.location == loc)
     return query.offset(skip).limit(limit).all()
 
 
@@ -321,7 +442,10 @@ def create_routing(routing: schemas.RoutingCreate, db: Session = Depends(get_db)
     if not product:
         raise HTTPException(status_code=400, detail="产品不存在")
     
-    routing_data = routing.model_dump(exclude={'operations'})
+    routing_data = routing.model_dump(exclude={"operations"})
+    routing_data["location"] = require_location_code(
+        db, routing_data.get("location"), "工艺路线位置"
+    )
     db_routing = models.Routing(**routing_data)
     db.add(db_routing)
     db.commit()
@@ -349,9 +473,15 @@ def update_routing(routing_id: int, routing: schemas.RoutingUpdate, db: Session 
         raise HTTPException(status_code=404, detail="工艺路线不存在")
     
     update_data = routing.model_dump(exclude_unset=True)
+    if "location" in update_data and update_data["location"] is not None:
+        if not str(update_data["location"]).strip():
+            raise HTTPException(status_code=422, detail="工艺路线位置不能为空")
+        update_data["location"] = require_location_code(
+            db, update_data["location"], "工艺路线位置"
+        )
     for key, value in update_data.items():
         setattr(db_routing, key, value)
-    
+
     db.commit()
     db.refresh(db_routing)
     return db_routing
@@ -371,15 +501,24 @@ def delete_routing(routing_id: int, db: Session = Depends(get_db)):
 
 # ==================== Routing Operations ====================
 
-def _resolve_work_center_from_resource(db: Session, resource_id: int = None, work_center_id: int = None) -> int:
-    """若提供 resource_id 则从资源推导 work_center_id，否则校验 work_center_id。"""
+def _resolve_work_center_from_resource(
+    db: Session, resource_id: int = None, work_center_id: int = None
+) -> Optional[int]:
+    """若提供 resource_id 则优先用资源的工作中心；资源未关联工作中心时可仅指定资源（work_center_id 可为空）。"""
     if resource_id is not None:
         resource = db.query(models.Resource).filter(models.Resource.id == resource_id).first()
         if not resource:
             raise HTTPException(status_code=400, detail="资源不存在")
-        return resource.work_center_id
+        if resource.work_center_id is not None:
+            return resource.work_center_id
+        if work_center_id is not None:
+            wc = db.query(models.WorkCenter).filter(models.WorkCenter.id == work_center_id).first()
+            if not wc:
+                raise HTTPException(status_code=400, detail="工作中心不存在")
+            return work_center_id
+        return None
     if work_center_id is None:
-        raise HTTPException(status_code=400, detail="请选择资源")
+        raise HTTPException(status_code=400, detail="请选择资源或工作中心")
     wc = db.query(models.WorkCenter).filter(models.WorkCenter.id == work_center_id).first()
     if not wc:
         raise HTTPException(status_code=400, detail="工作中心不存在")

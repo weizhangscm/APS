@@ -109,7 +109,9 @@ def get_gantt_data(
     view_type: str = Query("order", description="视图类型: order(订单视图) 或 resource(资源视图)"),
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    db: Session = Depends(get_db)
+    product_location: Optional[str] = Query(None, description="按产品位置代码过滤（与 resource_location 为 AND）"),
+    resource_location: Optional[str] = Query(None, description="按资源位置代码过滤"),
+    db: Session = Depends(get_db),
 ):
     """
     获取甘特图数据
@@ -124,7 +126,9 @@ def get_gantt_data(
     return engine.get_gantt_data(
         start_date=start_date,
         end_date=end_date,
-        view_type=view_type
+        view_type=view_type,
+        product_location=product_location,
+        resource_location=resource_location,
     )
 
 
@@ -150,6 +154,22 @@ def validate_scheduling(
     }
 
 
+def _parse_kpi_resource_ids_param(value: Optional[str]) -> Optional[List[int]]:
+    """KPI 查询参数：逗号分隔的资源 ID，如 1,2,3。"""
+    if not value or not str(value).strip():
+        return None
+    out: List[int] = []
+    for part in str(value).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(int(part))
+        except ValueError:
+            continue
+    return out or None
+
+
 @router.get("/kpi", response_model=schemas.KPIDashboard)
 def get_kpi_dashboard(
     db: Session = Depends(get_db),
@@ -157,6 +177,12 @@ def get_kpi_dashboard(
     due_date_end: Optional[str] = Query(None, description="交期区间结束日期 YYYY-MM-DD"),
     schedule_date_start: Optional[str] = Query(None, description="日期区间开始日期 YYYY-MM-DD（用于资源利用率/产能负荷/资源利用详情，按排程时间窗口过滤）"),
     schedule_date_end: Optional[str] = Query(None, description="日期区间结束日期 YYYY-MM-DD（用于资源利用率/产能负荷/资源利用详情，按排程时间窗口过滤）"),
+    product_location: Optional[str] = Query(None, description="产品位置代码（与 resource_location AND）"),
+    resource_location: Optional[str] = Query(None, description="资源位置代码"),
+    resource_ids: Optional[str] = Query(
+        None,
+        description="逗号分隔的资源 ID；限定订单 KPI 为「含这些资源上工序」的订单，且利用率/产能仅统计这些资源",
+    ),
 ):
     """获取KPI仪表板数据。
 
@@ -169,6 +195,9 @@ def get_kpi_dashboard(
         due_date_end=due_date_end,
         schedule_date_start=schedule_date_start,
         schedule_date_end=schedule_date_end,
+        product_location=product_location,
+        resource_location=resource_location,
+        resource_ids=_parse_kpi_resource_ids_param(resource_ids),
     )
 
 

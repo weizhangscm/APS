@@ -32,6 +32,7 @@
                 <el-icon><Setting /></el-icon>
                 <span>{{ t('menu.masterDataManagement') }}</span>
               </template>
+              <el-menu-item index="/master-data/locations">{{ t('menu.locations') }}</el-menu-item>
               <el-menu-item index="/ds-resource">{{ t('menu.resources') }}</el-menu-item>
               <el-menu-item index="/master-data/shifts">{{ t('menu.shifts') }}</el-menu-item>
               <el-menu-item index="/ds-product">{{ t('menu.products') }}</el-menu-item>
@@ -70,6 +71,10 @@
                     <el-icon><Lock /></el-icon>
                     {{ t('user.changePassword') }}
                   </el-dropdown-item>
+                  <el-dropdown-item v-if="currentUser.is_admin" command="dataManagement">
+                    <el-icon><FolderOpened /></el-icon>
+                    {{ t('user.databaseManagement') }}
+                  </el-dropdown-item>
                   <el-dropdown-item divided command="logout">
                     <el-icon><SwitchButton /></el-icon>
                     {{ t('user.logout') }}
@@ -107,6 +112,7 @@
         <el-button type="primary" @click="handleChangePassword" :loading="changingPassword">{{ t('common.confirm') }}</el-button>
       </template>
     </el-dialog>
+
   </el-config-provider>
 </template>
 
@@ -114,7 +120,7 @@
 import { computed, ref, reactive } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, User, Lock, SwitchButton, Briefcase } from '@element-plus/icons-vue'
+import { ArrowDown, User, Lock, SwitchButton, Briefcase, FolderOpened } from '@element-plus/icons-vue'
 import zhCn from 'element-plus/dist/locale/zh-cn.mjs'
 import en from 'element-plus/dist/locale/en.mjs'
 import { authApi } from '@/api'
@@ -198,6 +204,13 @@ const handleUserCommand = (command) => {
       passwordForm.newPassword = ''
       passwordForm.confirmPassword = ''
       passwordDialogVisible.value = true
+      break
+    case 'dataManagement':
+      if (!currentUser.value.is_admin) {
+        ElMessage.warning(i18nStore.t('user.clearDataAdminOnly'))
+        break
+      }
+      router.push('/data-management')
       break
     case 'logout':
       handleLogout()
@@ -472,4 +485,5 @@ $m3-shape-full: 9999px;
     color: $m3-on-surface-variant;
   }
 }
+
 </style>

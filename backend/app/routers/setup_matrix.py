@@ -2,14 +2,39 @@
 切换矩阵管理 API
 参考 SAP PPDS Setup Matrix 功能
 """
+from collections import defaultdict
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 
 from ..database import get_db
 from .. import models, schemas
+from ..services.location_catalog import (
+    PRIMARY_LOCATION_CODE,
+    matrix_location_for_resource,
+    normalize_location_code,
+    require_location_code,
+)
 
 router = APIRouter()
+
+
+def _merge_non_resource_matrix_for_global_grid(entries: List[models.SetupMatrix]) -> dict:
+    """
+    「全局」网格：合并所有 resource_id 为空的条目。
+    同一 (from, to) 多条时优先 work_center_id 为 NULL 的厂级默认，否则取 work_center_id 最小的一条（稳定、可预期）。
+    """
+    cells: dict[tuple[int, int], List[models.SetupMatrix]] = defaultdict(list)
+    for entry in entries:
+        cells[(entry.from_setup_group_id, entry.to_setup_group_id)].append(entry)
+    matrix: dict = {}
+    for (fid, tid), elist in cells.items():
+        global_rows = [e for e in elist if e.work_center_id is None]
+        picked = global_rows[0] if global_rows else min(elist, key=lambda e: e.work_center_id)
+        if fid not in matrix:
+            matrix[fid] = {}
+        matrix[fid][tid] = picked.changeover_time
+    return matrix
 
 
 # ==================== Setup Groups ====================
@@ -162,16 +187,17 @@ def get_setup_matrix_entries(
     work_center_id: Optional[int] = None,
     from_group_id: Optional[int] = None,
     to_group_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    location: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     """获取切换矩阵条目"""
     query = db.query(models.SetupMatrix).options(
         joinedload(models.SetupMatrix.from_setup_group),
         joinedload(models.SetupMatrix.to_setup_group),
         joinedload(models.SetupMatrix.resource),
-        joinedload(models.SetupMatrix.work_center)
+        joinedload(models.SetupMatrix.work_center),
     )
-    
+
     if resource_id is not None:
         query = query.filter(models.SetupMatrix.resource_id == resource_id)
     if work_center_id is not None:
@@ -180,7 +206,10 @@ def get_setup_matrix_entries(
         query = query.filter(models.SetupMatrix.from_setup_group_id == from_group_id)
     if to_group_id:
         query = query.filter(models.SetupMatrix.to_setup_group_id == to_group_id)
-    
+    loc = normalize_location_code(location)
+    if loc:
+        query = query.filter(models.SetupMatrix.location == loc)
+
     return query.all()
 
 
@@ -188,36 +217,49 @@ def get_setup_matrix_entries(
 def get_setup_matrix_grid(
     resource_id: Optional[int] = None,
     work_center_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    location: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     """获取切换矩阵网格视图"""
     # 获取所有切换组
     setup_groups = db.query(models.SetupGroup).all()
-    
-    # 构建查询条件
+
+    eff_loc = normalize_location_code(location)
     query = db.query(models.SetupMatrix)
     if resource_id is not None:
         query = query.filter(models.SetupMatrix.resource_id == resource_id)
+        if not eff_loc:
+            res = (
+                db.query(models.Resource)
+                .filter(models.Resource.id == resource_id)
+                .first()
+            )
+            eff_loc = matrix_location_for_resource(res)
+        query = query.filter(models.SetupMatrix.location == eff_loc)
     elif work_center_id is not None:
         query = query.filter(
             models.SetupMatrix.work_center_id == work_center_id,
-            models.SetupMatrix.resource_id == None
+            models.SetupMatrix.resource_id == None,
+        )
+        query = query.filter(
+            models.SetupMatrix.location == (eff_loc or PRIMARY_LOCATION_CODE)
         )
     else:
-        # 获取全局矩阵（resource_id 和 work_center_id 都为空）
+        query = query.filter(models.SetupMatrix.resource_id == None)
         query = query.filter(
-            models.SetupMatrix.resource_id == None,
-            models.SetupMatrix.work_center_id == None
+            models.SetupMatrix.location == (eff_loc or PRIMARY_LOCATION_CODE)
         )
-    
+
     entries = query.all()
     
-    # 构建矩阵字典
-    matrix = {}
-    for entry in entries:
-        if entry.from_setup_group_id not in matrix:
-            matrix[entry.from_setup_group_id] = {}
-        matrix[entry.from_setup_group_id][entry.to_setup_group_id] = entry.changeover_time
+    if resource_id is not None or work_center_id is not None:
+        matrix = {}
+        for entry in entries:
+            if entry.from_setup_group_id not in matrix:
+                matrix[entry.from_setup_group_id] = {}
+            matrix[entry.from_setup_group_id][entry.to_setup_group_id] = entry.changeover_time
+    else:
+        matrix = _merge_non_resource_matrix_for_global_grid(entries)
     
     return schemas.SetupMatrixGrid(
         setup_groups=[schemas.SetupGroup.model_validate(g) for g in setup_groups],
@@ -245,24 +287,30 @@ def create_setup_matrix_entry(
     ).first()
     if not to_group:
         raise HTTPException(status_code=404, detail="目标切换组不存在")
-    
+
+    loc = require_location_code(db, entry.location, "切换矩阵位置")
+
     # 检查是否已存在
     existing = db.query(models.SetupMatrix).filter(
         models.SetupMatrix.from_setup_group_id == entry.from_setup_group_id,
         models.SetupMatrix.to_setup_group_id == entry.to_setup_group_id,
         models.SetupMatrix.resource_id == entry.resource_id,
-        models.SetupMatrix.work_center_id == entry.work_center_id
+        models.SetupMatrix.work_center_id == entry.work_center_id,
+        models.SetupMatrix.location == loc,
     ).first()
     
     if existing:
         # 更新现有条目
         existing.changeover_time = entry.changeover_time
         existing.description = entry.description
+        existing.location = loc
         db.commit()
         db.refresh(existing)
         return existing
-    
-    db_entry = models.SetupMatrix(**entry.model_dump())
+
+    payload = entry.model_dump()
+    payload["location"] = loc
+    db_entry = models.SetupMatrix(**payload)
     db.add(db_entry)
     db.commit()
     db.refresh(db_entry)
@@ -279,19 +327,24 @@ def batch_update_matrix(
     created = 0
     
     for entry in entries:
+        loc = require_location_code(db, entry.location, "切换矩阵位置")
         existing = db.query(models.SetupMatrix).filter(
             models.SetupMatrix.from_setup_group_id == entry.from_setup_group_id,
             models.SetupMatrix.to_setup_group_id == entry.to_setup_group_id,
             models.SetupMatrix.resource_id == entry.resource_id,
-            models.SetupMatrix.work_center_id == entry.work_center_id
+            models.SetupMatrix.work_center_id == entry.work_center_id,
+            models.SetupMatrix.location == loc,
         ).first()
-        
+
         if existing:
             existing.changeover_time = entry.changeover_time
             existing.description = entry.description
+            existing.location = loc
             updated += 1
         else:
-            db_entry = models.SetupMatrix(**entry.model_dump())
+            payload = entry.model_dump()
+            payload["location"] = loc
+            db_entry = models.SetupMatrix(**payload)
             db.add(db_entry)
             created += 1
     
@@ -319,7 +372,8 @@ def get_changeover_time(
     to_product_id: int,
     resource_id: Optional[int] = None,
     work_center_id: Optional[int] = None,
-    db: Session = Depends(get_db)
+    location: Optional[str] = None,
+    db: Session = Depends(get_db),
 ):
     """
     查询两个产品之间的切换时间
@@ -358,33 +412,49 @@ def get_changeover_time(
     if from_group_id == to_group_id:
         return {"changeover_time": 0.0, "source": "same_group", "message": "相同切换组"}
     
+    eff_loc = PRIMARY_LOCATION_CODE
+    if resource_id:
+        res = (
+            db.query(models.Resource)
+            .filter(models.Resource.id == resource_id)
+            .first()
+        )
+        eff_loc = matrix_location_for_resource(res)
+    elif work_center_id:
+        eff_loc = normalize_location_code(location) or PRIMARY_LOCATION_CODE
+    else:
+        eff_loc = normalize_location_code(location) or PRIMARY_LOCATION_CODE
+
     # 1. 查找资源级别
     if resource_id:
         entry = db.query(models.SetupMatrix).filter(
             models.SetupMatrix.from_setup_group_id == from_group_id,
             models.SetupMatrix.to_setup_group_id == to_group_id,
-            models.SetupMatrix.resource_id == resource_id
+            models.SetupMatrix.resource_id == resource_id,
+            models.SetupMatrix.location == eff_loc,
         ).first()
         if entry:
             return {"changeover_time": entry.changeover_time, "source": "resource"}
-    
+
     # 2. 查找工作中心级别
     if work_center_id:
         entry = db.query(models.SetupMatrix).filter(
             models.SetupMatrix.from_setup_group_id == from_group_id,
             models.SetupMatrix.to_setup_group_id == to_group_id,
             models.SetupMatrix.work_center_id == work_center_id,
-            models.SetupMatrix.resource_id == None
+            models.SetupMatrix.resource_id == None,
+            models.SetupMatrix.location == eff_loc,
         ).first()
         if entry:
             return {"changeover_time": entry.changeover_time, "source": "work_center"}
-    
+
     # 3. 查找全局
     entry = db.query(models.SetupMatrix).filter(
         models.SetupMatrix.from_setup_group_id == from_group_id,
         models.SetupMatrix.to_setup_group_id == to_group_id,
         models.SetupMatrix.resource_id == None,
-        models.SetupMatrix.work_center_id == None
+        models.SetupMatrix.work_center_id == None,
+        models.SetupMatrix.location == eff_loc,
     ).first()
     if entry:
         return {"changeover_time": entry.changeover_time, "source": "global"}

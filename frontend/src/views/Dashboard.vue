@@ -7,25 +7,66 @@
       </h1>
     </div>
 
-    <!-- 交期区间与刷新按钮同一行 -->
+    <!-- 日期区间、位置与刷新按钮同一行 -->
     <el-row :gutter="16" class="toolbar-row">
-      <el-col :span="6">
-        <div class="date-range-bar">
-          <span class="date-range-label">{{ t('dashboard.dateRange') }}</span>
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            :range-separator="t('common.to')"
-            :start-placeholder="t('common.startDate')"
-            :end-placeholder="t('common.endDate')"
-            value-format="YYYY-MM-DD"
-            :shortcuts="dateShortcuts"
-            class="date-range-picker"
-            @change="onDateRangeChange"
-          />
+      <el-col :xs="24" :md="18">
+        <div class="filters-inline">
+          <div class="date-range-bar">
+            <span class="date-range-label">{{ t('dashboard.dateRange') }}</span>
+            <el-date-picker
+              v-model="dateRange"
+              type="daterange"
+              :range-separator="t('common.to')"
+              :start-placeholder="t('common.startDate')"
+              :end-placeholder="t('common.endDate')"
+              value-format="YYYY-MM-DD"
+              :shortcuts="dateShortcuts"
+              class="date-range-picker"
+              @change="onDateRangeChange"
+            />
+          </div>
+          <div class="location-bar">
+            <span class="date-range-label">{{ t('dashboard.location') }}</span>
+            <el-select
+              v-model="kpiLocation"
+              clearable
+              filterable
+              :placeholder="t('dashboard.allLocations')"
+              class="location-select"
+              @change="refreshData"
+            >
+              <el-option
+                v-for="loc in locationOptions"
+                :key="loc.code"
+                :label="locationOptionLabel(loc)"
+                :value="loc.code"
+              />
+            </el-select>
+          </div>
+          <div class="resource-bar">
+            <span class="date-range-label">{{ t('dashboard.resource') }}</span>
+            <el-select
+              v-model="kpiResourceIds"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
+              filterable
+              clearable
+              :placeholder="t('dashboard.allResources')"
+              class="resource-select"
+              @change="refreshData"
+            >
+              <el-option
+                v-for="r in resourceOptions"
+                :key="r.id"
+                :label="r.name"
+                :value="r.id"
+              />
+            </el-select>
+          </div>
         </div>
       </el-col>
-      <el-col :span="18" class="toolbar-actions">
+      <el-col :xs="24" :md="6" class="toolbar-actions">
         <el-button @click="refreshData" :loading="loading">
           <el-icon><Refresh /></el-icon>
           {{ t('dashboard.refreshView') }}
@@ -154,6 +195,7 @@ import {
 } from 'echarts/components'
 import VChart from 'vue-echarts'
 import { useSchedulingStore } from '@/stores/scheduling'
+import { masterDataApi } from '@/api'
 import KPICard from '@/components/KPICard.vue'
 
 const i18nStore = useI18nStore()
@@ -218,6 +260,35 @@ function getDefaultDateRange() {
 }
 const dateRange = ref(getDefaultDateRange())
 
+const locationOptions = ref([])
+const kpiLocation = ref('')
+const resourceOptions = ref([])
+const kpiResourceIds = ref([])
+
+const locationOptionLabel = (loc) => {
+  if (!loc) return ''
+  const d = (loc.description || '').trim()
+  return d ? `${loc.code} · ${d}` : loc.code
+}
+
+const loadLocationOptions = async () => {
+  try {
+    locationOptions.value = (await masterDataApi.getLocations()) || []
+  } catch (e) {
+    console.error('Failed to load locations:', e)
+    locationOptions.value = []
+  }
+}
+
+const loadResourceOptions = async () => {
+  try {
+    resourceOptions.value = (await masterDataApi.getResources()) || []
+  } catch (e) {
+    console.error('Failed to load resources:', e)
+    resourceOptions.value = []
+  }
+}
+
 const dateShortcuts = computed(() => [
   { text: t('dashboard.shortcuts.thisWeek'), value: () => {
     const end = new Date()
@@ -252,13 +323,17 @@ const refreshData = async () => {
   loading.value = true
   try {
     const [start, end] = dateRange.value || []
+    const loc = kpiLocation.value && String(kpiLocation.value).trim()
     await schedulingStore.fetchKPIData({
       // 保持订单KPI/平均提前期的原有口径：仍按交期区间过滤（不改功能）
       ...(start && { dueDateStart: start }),
       ...(end && { dueDateEnd: end }),
       // 资源利用率/每日产能负荷/资源利用详情：按“日期区间”（排程时间窗口）过滤
       ...(start && { scheduleDateStart: start }),
-      ...(end && { scheduleDateEnd: end })
+      ...(end && { scheduleDateEnd: end }),
+      ...(loc
+        ? { productLocation: loc, resourceLocation: loc }
+        : {})
     })
   } finally {
     loading.value = false
@@ -409,7 +484,8 @@ const capacityChartOption = computed(() => {
   }
 })
 
-onMounted(() => {
+onMounted(async () => {
+  await Promise.all([loadLocationOptions(), loadResourceOptions()])
   refreshData()
 })
 </script>
@@ -430,6 +506,39 @@ $m3-on-surface-variant: #444746;
     display: flex;
     justify-content: flex-end;
     align-items: center;
+    margin-top: 0;
+  }
+}
+
+.filters-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.location-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+
+  .location-select {
+    width: 200px;
+  }
+}
+
+.resource-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+  min-width: 0;
+
+  .resource-select {
+    width: min(260px, 100%);
+    min-width: 200px;
   }
 }
 

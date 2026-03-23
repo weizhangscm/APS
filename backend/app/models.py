@@ -41,6 +41,17 @@ class OperationStatus(str, enum.Enum):
     COMPLETED = "completed"
 
 
+class Location(Base):
+    """位置主数据 - 全局位置代码与描述"""
+
+    __tablename__ = "locations"
+
+    code = Column(String(50), primary_key=True, index=True)
+    description = Column(String(200), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class WorkCenter(Base):
     """工作中心 - 生产车间或区域"""
     __tablename__ = "work_centers"
@@ -63,10 +74,23 @@ class Resource(Base):
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(50), unique=True, index=True, nullable=False)
     name = Column(String(100), nullable=False)
-    work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=False)
+    work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=True)
     capacity_per_day = Column(Float, default=8.0)  # 每天可用小时数
     efficiency = Column(Float, default=1.0)  # 效率系数
     description = Column(Text, nullable=True)
+    # DS 资源视图扩展字段（Excel 导入/展示）
+    location = Column(String(50), nullable=True)
+    operating_start = Column(String(30), nullable=True)
+    operating_end = Column(String(30), nullable=True)
+    operating_break = Column(String(30), nullable=True)
+    utilization_percent = Column(Float, nullable=True)
+    production_hours = Column(Float, nullable=True)
+    capacity_value = Column(Float, nullable=True)
+    finite_planning = Column(Boolean, default=True)
+    is_bottleneck = Column(Boolean, default=False)
+    timezone = Column(String(50), nullable=True)
+    factory_calendar = Column(String(50), nullable=True)
+    planning_group = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -87,6 +111,7 @@ class Shift(Base):
     start_time = Column(String(10), nullable=False)  # "HH:mm"
     end_time = Column(String(10), nullable=False)   # "HH:mm"
     break_time = Column(Integer, default=0)        # 休息时间(分钟)
+    location = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -103,6 +128,12 @@ class Product(Base):
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     unit = Column(String(20), default="PCS")
+    product_type = Column(String(20), nullable=True)
+    location = Column(String(50), nullable=True)
+    location_name = Column(String(100), nullable=True)
+    mrp_controller = Column(String(20), nullable=True)
+    mrp_controller_name = Column(String(100), nullable=True)
+    deletion_flag = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -122,6 +153,7 @@ class Routing(Base):
     version = Column(String(20), default="1.0")
     is_active = Column(Integer, default=1)
     description = Column(Text, nullable=True)
+    location = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -138,7 +170,7 @@ class RoutingOperation(Base):
     routing_id = Column(Integer, ForeignKey("routings.id"), nullable=False)
     sequence = Column(Integer, nullable=False)  # 工序顺序
     name = Column(String(100), nullable=False)
-    work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=False)
+    work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=True)
     resource_id = Column(Integer, ForeignKey("resources.id"), nullable=True)  # 指定资源（DS工艺路线用）
     setup_time = Column(Float, default=0.0)  # 准备时间(小时)
     run_time_per_unit = Column(Float, nullable=False)  # 单件加工时间(小时)
@@ -169,6 +201,7 @@ class ProductionOrder(Base):
     confirmed_start = Column(DateTime, nullable=True)
     confirmed_end = Column(DateTime, nullable=True)
     description = Column(Text, nullable=True)
+    location = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -246,6 +279,7 @@ class SetupMatrix(Base):
     work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=True)  # 可选
     changeover_time = Column(Float, nullable=False)  # 切换时间（小时）
     description = Column(Text, nullable=True)
+    location = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

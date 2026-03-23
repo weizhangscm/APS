@@ -17,10 +17,16 @@
         <el-icon><Share /></el-icon>
         {{ t('dsRouting.title') }}
       </h1>
-      <el-button type="primary" @click="handleAdd">
-        <el-icon><Plus /></el-icon>
-        {{ t('dsRouting.addRouting') }}
-      </el-button>
+      <div class="header-actions">
+        <DataExcelToolbar
+          :entities="[{ id: 'routings', labelKey: 'dataManagement.routings' }]"
+          @imported="reloadRoutings"
+        />
+        <el-button type="primary" @click="handleAdd">
+          <el-icon><Plus /></el-icon>
+          {{ t('dsRouting.addRouting') }}
+        </el-button>
+      </div>
     </div>
     
     <el-card>
@@ -38,6 +44,7 @@
           </template>
         </el-table-column>
         <el-table-column prop="version" :label="t('masterData.version')" min-width="70" align="center" />
+        <el-table-column prop="location" :label="t('dsRouting.location')" min-width="90" align="center" />
         <el-table-column :label="t('masterData.status')" min-width="80" align="center">
           <template #default="{ row }">
             <el-tag :type="row.is_active ? 'success' : 'info'" size="small">
@@ -81,6 +88,16 @@
               :key="p.id" 
               :label="`${p.code} - ${p.name}`" 
               :value="p.id" 
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('dsRouting.location')" prop="location">
+          <el-select v-model="form.location" filterable :placeholder="t('dsRouting.selectLocation')" style="width: 100%">
+            <el-option
+              v-for="loc in locations"
+              :key="loc.code"
+              :label="loc.description ? `${loc.code} — ${loc.description}` : loc.code"
+              :value="loc.code"
             />
           </el-select>
         </el-form-item>
@@ -189,6 +206,8 @@ import { Filter } from '@element-plus/icons-vue'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useDSFiltersStore } from '@/stores/dsFilters'
 import { useI18nStore } from '@/stores/i18n'
+import { masterDataApi } from '@/api'
+import DataExcelToolbar from '@/components/DataExcelToolbar.vue'
 
 const router = useRouter()
 const store = useMasterDataStore()
@@ -212,6 +231,7 @@ const routings = computed(() => {
 })
 const products = computed(() => store.products)
 const resources = computed(() => store.resources)
+const locations = ref([])
 
 // 工序表中显示资源名称：优先 resource / resource_id（与 DS资源 一致），否则按 work_center_id 取第一个
 const getResourceDisplayName = (row) => {
@@ -238,6 +258,7 @@ const form = ref({
   code: '',
   name: '',
   product_id: null,
+  location: '',
   version: '1.0',
   is_active: 1,
   description: ''
@@ -246,7 +267,8 @@ const form = ref({
 const rulesRef = computed(() => ({
   code: [{ required: true, message: t('masterData.enterCode'), trigger: 'blur' }],
   name: [{ required: true, message: t('masterData.enterName'), trigger: 'blur' }],
-  product_id: [{ required: true, message: t('masterData.selectProduct'), trigger: 'change' }]
+  product_id: [{ required: true, message: t('masterData.selectProduct'), trigger: 'change' }],
+  location: [{ required: true, message: t('dsRouting.selectLocation'), trigger: 'change' }]
 }))
 
 // Operations
@@ -279,14 +301,30 @@ const opRulesRef = computed(() => ({
 const handleAdd = () => {
   isEdit.value = false
   editId.value = null
-  form.value = { code: '', name: '', product_id: null, version: '1.0', is_active: 1, description: '' }
+  form.value = {
+    code: '',
+    name: '',
+    product_id: null,
+    location: locations.value[0]?.code || '',
+    version: '1.0',
+    is_active: 1,
+    description: ''
+  }
   dialogVisible.value = true
 }
 
 const handleEdit = (row) => {
   isEdit.value = true
   editId.value = row.id
-  form.value = { ...row }
+  form.value = {
+    code: row.code,
+    name: row.name,
+    product_id: row.product_id,
+    location: row.location || '',
+    version: row.version,
+    is_active: row.is_active,
+    description: row.description || ''
+  }
   dialogVisible.value = true
 }
 
@@ -410,7 +448,23 @@ const goToDetailedPlan = () => {
   router.push('/ds')
 }
 
-onMounted(() => {
+const reloadRoutings = () => store.fetchRoutings()
+
+watch(
+  () => form.value.product_id,
+  (pid) => {
+    if (isEdit.value || !pid) return
+    const p = products.value.find((x) => x.id === pid)
+    if (p?.location) form.value.location = p.location
+  }
+)
+
+onMounted(async () => {
+  try {
+    locations.value = await masterDataApi.getLocations()
+  } catch {
+    locations.value = []
+  }
   store.fetchRoutings()
   store.fetchProducts()
   store.fetchWorkCenters()
@@ -421,6 +475,23 @@ onMounted(() => {
 <style lang="scss" scoped>
 .master-data-page {
   min-height: calc(100vh - 100px);
+}
+
+.page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
 }
 
 // 筛选状态提示

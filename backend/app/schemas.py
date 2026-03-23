@@ -52,14 +52,48 @@ class WorkCenter(WorkCenterBase):
         from_attributes = True
 
 
+# Location master (位置主数据)
+class LocationBase(BaseModel):
+    code: str = Field(..., max_length=50, description="位置代码")
+    description: Optional[str] = Field(None, max_length=200)
+
+
+class LocationCreate(LocationBase):
+    pass
+
+
+class LocationUpdate(BaseModel):
+    description: Optional[str] = Field(None, max_length=200)
+
+
+class Location(LocationBase):
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # Resource Schemas
 class ResourceBase(BaseModel):
     code: str = Field(..., max_length=50)
     name: str = Field(..., max_length=100)
-    work_center_id: int
+    work_center_id: Optional[int] = None
     capacity_per_day: float = 8.0
     efficiency: float = 1.0
     description: Optional[str] = None
+    location: Optional[str] = None
+    operating_start: Optional[str] = None
+    operating_end: Optional[str] = None
+    operating_break: Optional[str] = None
+    utilization_percent: Optional[float] = None
+    production_hours: Optional[float] = None
+    capacity_value: Optional[float] = None
+    finite_planning: Optional[bool] = True
+    is_bottleneck: Optional[bool] = False
+    timezone: Optional[str] = None
+    factory_calendar: Optional[str] = None
+    planning_group: Optional[str] = None
 
 
 class ResourceCreate(ResourceBase):
@@ -73,12 +107,26 @@ class ResourceUpdate(BaseModel):
     capacity_per_day: Optional[float] = None
     efficiency: Optional[float] = None
     description: Optional[str] = None
+    location: Optional[str] = None
+    operating_start: Optional[str] = None
+    operating_end: Optional[str] = None
+    operating_break: Optional[str] = None
+    utilization_percent: Optional[float] = None
+    production_hours: Optional[float] = None
+    capacity_value: Optional[float] = None
+    finite_planning: Optional[bool] = None
+    is_bottleneck: Optional[bool] = None
+    timezone: Optional[str] = None
+    factory_calendar: Optional[str] = None
+    planning_group: Optional[str] = None
 
 
 class Resource(ResourceBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    finite_planning: Optional[bool] = None
+    is_bottleneck: Optional[bool] = None
 
     class Config:
         from_attributes = True
@@ -96,6 +144,7 @@ class ShiftBase(BaseModel):
     start_time: str = Field(..., max_length=10)   # "HH:mm"
     end_time: str = Field(..., max_length=10)     # "HH:mm"
     break_time: int = 0                           # 休息时间(分钟)
+    location: str = Field(..., max_length=50, description="位置代码，须存在于位置主数据")
 
 
 class ShiftCreate(ShiftBase):
@@ -109,6 +158,7 @@ class ShiftUpdate(BaseModel):
     start_time: Optional[str] = Field(None, max_length=10)
     end_time: Optional[str] = Field(None, max_length=10)
     break_time: Optional[int] = None
+    location: Optional[str] = Field(None, max_length=50)
 
 
 class Shift(ShiftBase):
@@ -130,6 +180,12 @@ class ProductBase(BaseModel):
     name: str = Field(..., max_length=100)
     description: Optional[str] = None
     unit: str = "PCS"
+    product_type: Optional[str] = None
+    location: Optional[str] = None
+    location_name: Optional[str] = None
+    mrp_controller: Optional[str] = None
+    mrp_controller_name: Optional[str] = None
+    deletion_flag: Optional[bool] = False
 
 
 class ProductCreate(ProductBase):
@@ -141,12 +197,19 @@ class ProductUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
     description: Optional[str] = None
     unit: Optional[str] = None
+    product_type: Optional[str] = None
+    location: Optional[str] = None
+    location_name: Optional[str] = None
+    mrp_controller: Optional[str] = None
+    mrp_controller_name: Optional[str] = None
+    deletion_flag: Optional[bool] = None
 
 
 class Product(ProductBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    deletion_flag: Optional[bool] = None
 
     class Config:
         from_attributes = True
@@ -200,6 +263,7 @@ class RoutingBase(BaseModel):
     version: str = "1.0"
     is_active: int = 1
     description: Optional[str] = None
+    location: str = Field(..., max_length=50, description="位置代码，须存在于位置主数据")
 
 
 class RoutingCreate(RoutingBase):
@@ -213,6 +277,7 @@ class RoutingUpdate(BaseModel):
     version: Optional[str] = None
     is_active: Optional[int] = None
     description: Optional[str] = None
+    location: Optional[str] = Field(None, max_length=50)
 
 
 class Routing(RoutingBase):
@@ -284,10 +349,12 @@ class ProductionOrderBase(BaseModel):
     confirmed_start: Optional[datetime] = None  # 生产订单确认开始时间
     confirmed_end: Optional[datetime] = None    # 生产订单确认结束时间
     description: Optional[str] = None
+    location: Optional[str] = Field(None, max_length=50, description="与产品位置同步展示")
 
 
 class ProductionOrderCreate(ProductionOrderBase):
-    pass
+    """创建时订单号可省略，由后端按类型自动生成（PLN/PRD + 年 + 序号）。"""
+    order_number: Optional[str] = Field(default=None, max_length=50)
 
 
 class ProductionOrderUpdate(BaseModel):
@@ -301,6 +368,7 @@ class ProductionOrderUpdate(BaseModel):
     confirmed_start: Optional[datetime] = None
     confirmed_end: Optional[datetime] = None
     description: Optional[str] = None
+    location: Optional[str] = Field(None, max_length=50)
 
 
 class ProductionOrder(ProductionOrderBase):
@@ -363,6 +431,8 @@ class GanttTask(BaseModel):
     operation_id: Optional[int] = None
     resource_id: Optional[int] = None
     product_id: Optional[int] = None  # 产品ID - 用于按产品过滤
+    order_location: Optional[str] = None
+    resource_location: Optional[str] = None
     status: Optional[str] = None
     color: Optional[str] = None
     task_type: Optional[str] = None  # "operation", "changeover", "project"
@@ -391,6 +461,7 @@ class ResourceUtilization(BaseModel):
     resource_id: int
     resource_name: str
     work_center_name: str
+    location: Optional[str] = None
     total_capacity_hours: float
     scheduled_hours: float
     utilization_percent: float
@@ -535,6 +606,7 @@ class SetupMatrixBase(BaseModel):
     work_center_id: Optional[int] = None
     changeover_time: float = Field(..., ge=0, description="切换时间(小时)")
     description: Optional[str] = None
+    location: str = Field(..., max_length=50, description="位置代码")
 
 
 class SetupMatrixCreate(SetupMatrixBase):
@@ -548,6 +620,7 @@ class SetupMatrixUpdate(BaseModel):
     work_center_id: Optional[int] = None
     changeover_time: Optional[float] = Field(None, ge=0)
     description: Optional[str] = None
+    location: Optional[str] = Field(None, max_length=50)
 
 
 class SetupMatrix(SetupMatrixBase):

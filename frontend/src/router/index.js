@@ -1,4 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { messages, defaultLocale } from '@/i18n'
+
+function t(key) {
+  const loc = localStorage.getItem('locale') || defaultLocale
+  const pack = messages[loc] || messages[defaultLocale]
+  const keys = key.split('.')
+  let v = pack
+  for (const k of keys) {
+    v = v?.[k]
+  }
+  return v || key
+}
 
 const routes = [
   {
@@ -39,6 +52,12 @@ const routes = [
     path: '/master-data/work-centers',
     name: 'WorkCenters',
     component: () => import('@/views/MasterData/WorkCenters.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/master-data/locations',
+    name: 'Locations',
+    component: () => import('@/views/MasterData/Locations.vue'),
     meta: { requiresAuth: true }
   },
   {
@@ -112,6 +131,12 @@ const routes = [
     name: 'DSOrders',
     component: () => import('@/views/DSOrdersView.vue'),
     meta: { requiresAuth: true }
+  },
+  {
+    path: '/data-management',
+    name: 'DataManagement',
+    component: () => import('@/views/DataManagement.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true }
   }
 ]
 
@@ -128,6 +153,19 @@ router.beforeEach((to, from, next) => {
   if (requiresAuth && !token) {
     // 需要登录但未登录，跳转到登录页
     next('/login')
+  } else if (to.meta.requiresAdmin && token) {
+    try {
+      const user = JSON.parse(localStorage.getItem('user') || '{}')
+      if (!user.is_admin) {
+        ElMessage.warning(t('user.clearDataAdminOnly'))
+        next('/dashboard')
+        return
+      }
+    } catch {
+      next('/dashboard')
+      return
+    }
+    next()
   } else if (to.path === '/login' && token) {
     // 已登录但访问登录页，跳转到首页
     next('/dashboard')

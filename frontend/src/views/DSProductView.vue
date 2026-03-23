@@ -5,10 +5,16 @@
         <el-icon><Box /></el-icon>
         {{ t('dsProduct.title') }}
       </h1>
-      <el-button type="primary" @click="handleAdd">
-        <el-icon><Plus /></el-icon>
-        {{ t('dsProduct.addProduct') }}
-      </el-button>
+      <div class="header-actions">
+        <DataExcelToolbar
+          :entities="[{ id: 'products', labelKey: 'dataManagement.products' }]"
+          @imported="loadProducts"
+        />
+        <el-button type="primary" @click="handleAdd">
+          <el-icon><Plus /></el-icon>
+          {{ t('dsProduct.addProduct') }}
+        </el-button>
+      </div>
     </div>
     
     <el-card>
@@ -88,10 +94,12 @@
         </el-form-item>
         <el-form-item :label="t('dsProduct.location')" prop="location">
           <el-select v-model="form.location" :placeholder="t('dsProduct.selectLocation')" style="width: 100%">
-            <el-option label="1020 - Frankfurt Plant" value="1020" />
-            <el-option label="1110 - Beijing Plant" value="1110" />
-            <el-option label="1120 - Shanghai Plant" value="1120" />
-            <el-option label="1121 - Shanghai Plant2" value="1121" />
+            <el-option
+              v-for="loc in locations"
+              :key="loc.code"
+              :label="loc.description ? `${loc.code} — ${loc.description}` : loc.code"
+              :value="loc.code"
+            />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('dsProduct.mrpController')">
@@ -113,6 +121,8 @@ import { Box, Plus } from '@element-plus/icons-vue'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useDSFiltersStore } from '@/stores/dsFilters'
 import { useI18nStore } from '@/stores/i18n'
+import { masterDataApi } from '@/api'
+import DataExcelToolbar from '@/components/DataExcelToolbar.vue'
 
 const i18nStore = useI18nStore()
 const t = (key) => i18nStore.t(key)
@@ -123,6 +133,7 @@ const dsFiltersStore = useDSFiltersStore()
 
 // 加载状态
 const loading = ref(false)
+const locations = ref([])
 
 // 产品列表数据
 const productList = ref([])
@@ -141,7 +152,7 @@ const form = ref({
   product_description: '',
   base_unit: 'PCS',
   product_type: 'FERT',
-  location: '1020',
+  location: '',
   mrp_controller: '001'
 })
 
@@ -153,12 +164,18 @@ const rulesRef = computed(() => ({
   location: [{ required: true, message: i18nStore.t('dsProduct.selectLocation'), trigger: 'change' }]
 }))
 
-// 位置映射数据
-const locationMap = {
-  '1020': 'Frankfurt Plant',
-  '1110': 'Beijing Plant',
-  '1120': 'Shanghai Plant',
-  '1121': 'Shanghai Plant2'
+const apiDetailMessage = (error) => {
+  const d = error?.response?.data?.detail
+  if (typeof d === 'string') return d
+  if (Array.isArray(d) && d.length) {
+    return d.map((x) => (typeof x === 'object' && x?.msg ? x.msg : String(x))).join('; ') || null
+  }
+  return null
+}
+
+const locationDescription = (code) => {
+  const row = locations.value.find((l) => l.code === code)
+  return row?.description || ''
 }
 
 // 产品类型列表
@@ -188,22 +205,20 @@ const loadProducts = async () => {
     const data = store.products
     // 将后端数据映射为界面字段
     const mappedData = (data || []).map((product, index) => {
-      // 模拟分配位置和类型
-      const locationKeys = Object.keys(locationMap)
-      const locationCode = locationKeys[index % locationKeys.length]
-      const productType = productTypes[index % productTypes.length]
-      
+      const loc = product.location || (locations.value[0]?.code ?? '')
+      const productType = product.product_type || productTypes[index % productTypes.length]
+      const rawUnit = product.unit || 'PCS'
       return {
         id: product.id,
         product_code: product.code,
         product_description: product.name,
-        base_unit: unitMap[product.unit] || `${product.unit}`,
+        base_unit: unitMap[rawUnit] || rawUnit,
         product_type: productType,
-        location: locationCode,
-        location_name: locationMap[locationCode],
-        mrp_controller: '001',
-        mrp_controller_name: '',
-        deletion_flag: false
+        location: loc,
+        location_name: product.location_name || locationDescription(loc) || '',
+        mrp_controller: product.mrp_controller || '001',
+        mrp_controller_name: product.mrp_controller_name || '',
+        deletion_flag: !!(product.deletion_flag === true || product.deletion_flag === 1)
       }
     })
     productList.value = mappedData
@@ -231,7 +246,7 @@ const handleAdd = () => {
     product_description: '',
     base_unit: 'PCS',
     product_type: 'FERT',
-    location: '1020',
+    location: locations.value[0]?.code || '',
     mrp_controller: '001'
   }
   editDialogVisible.value = true
@@ -260,12 +275,13 @@ const handleDelete = async (row) => {
       t('orders.confirmDeleteTitle'),
       { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
     )
+    await store.deleteProduct(row.id)
     ElMessage.success(t('messages.deleteSuccess'))
-    loadProducts()
+    await loadProducts()
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(t('messages.deleteFailed'))
-    }
+    if (error === 'cancel') return
+    const msg = apiDetailMessage(error)
+    ElMessage.error(msg || t('messages.deleteFailed'))
   }
 }
 
@@ -274,27 +290,51 @@ const handleSubmit = async () => {
   try {
     await formRef.value.validate()
     submitting.value = true
-    
+
+    const loc = form.value.location
+    const payloadBase = {
+      name: form.value.product_description,
+      unit: form.value.base_unit,
+      product_type: form.value.product_type,
+      location: loc,
+      location_name: locationDescription(loc) || null,
+      mrp_controller: form.value.mrp_controller?.trim() ? form.value.mrp_controller.trim() : null
+    }
+
     if (isEdit.value) {
+      await store.updateProduct(form.value.id, payloadBase)
       ElMessage.success(t('messages.updateSuccess'))
     } else {
+      await store.createProduct({
+        code: form.value.product_code,
+        ...payloadBase
+      })
       ElMessage.success(t('messages.createSuccess'))
     }
-    
+
     editDialogVisible.value = false
-    loadProducts()
+    await loadProducts()
   } catch (error) {
-    if (error !== false) {
-      ElMessage.error(isEdit.value ? t('messages.updateFailed') : t('messages.createFailed'))
-    }
+    if (error === false) return
+    const msg = apiDetailMessage(error)
+    ElMessage.error(msg || (isEdit.value ? t('messages.updateFailed') : t('messages.createFailed')))
   } finally {
     submitting.value = false
   }
 }
 
+const loadLocations = async () => {
+  try {
+    locations.value = await masterDataApi.getLocations()
+  } catch {
+    locations.value = []
+  }
+}
+
 // 初始化
-onMounted(() => {
-  loadProducts()
+onMounted(async () => {
+  await loadLocations()
+  await loadProducts()
 })
 </script>
 
@@ -308,6 +348,14 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 24px;
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
   
   h1 {
     margin: 0;

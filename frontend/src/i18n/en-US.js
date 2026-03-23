@@ -10,6 +10,7 @@ export default {
     kpiDashboard: 'KPI Dashboard',
     masterDataManagement: 'Master Data Management',
     businessDataManagement: 'Business Data Management',
+    locations: 'Locations',
     resources: 'Resources',
     shifts: 'Shifts',
     products: 'Products',
@@ -18,10 +19,23 @@ export default {
     productionOrders: 'Production/Planning Orders'
   },
 
+  locations: {
+    add: 'Add location',
+    edit: 'Edit location',
+    code: 'Location code',
+    description: 'Description',
+    createdAt: 'Created at',
+    enterCode: 'Enter location code',
+    enterDescription: 'Optional notes',
+    loadFailed: 'Failed to load locations',
+    confirmDelete: 'Delete location "{code}"?'
+  },
+
   // User Related
   user: {
     profile: 'Profile',
     changePassword: 'Change Password',
+    clearDataAdminOnly: 'Only administrators can access database management',
     databaseManagement: 'Database Management',
     logout: 'Logout',
     admin: 'Administrator',
@@ -29,6 +43,15 @@ export default {
     confirmLogout: 'Are you sure you want to logout?',
     logoutSuccess: 'Logged out successfully',
     profileComingSoon: 'Profile - Coming soon'
+  },
+
+  dataExcel: {
+    downloadTemplate: 'Download template',
+    uploadData: 'Upload data',
+    downloadFailed: 'Template download failed',
+    importSuccess: 'Imported {n} row(s) successfully',
+    importPartial: 'Done: {ok} ok, {fail} failed',
+    importFailed: 'Import failed'
   },
 
   dataManagement: {
@@ -42,6 +65,12 @@ export default {
     confirmAll: 'Are you sure you want to clear ALL data? This cannot be undone.',
     clearSuccess: 'Cleared successfully',
     lastResult: 'Last result',
+    selectAtLeastOne: 'Select at least one data type to clear',
+    columnType: 'Data type',
+    columnDependency: 'Dependencies',
+    reloadApp: 'Reload page (refresh UI data)',
+    locations: 'Locations',
+    locationsDesc: 'locations master (1001 is the system default and cannot be deleted)',
     workCenters: 'Work centers',
     workCentersDesc: 'work_centers (may cascade dependent data)',
     resources: 'Resources',
@@ -130,6 +159,10 @@ export default {
     refreshData: 'Refresh Data',
     refreshView: 'Refresh View',
     dateRange: 'Date Range',
+    location: 'Location',
+    allLocations: 'All locations',
+    resource: 'Resource',
+    allResources: 'All resources',
     shortcuts: {
       thisWeek: 'This Week',
       thisMonth: 'This Month',
@@ -157,6 +190,8 @@ export default {
   // Detailed Schedule View
   dsView: {
     displayRange: 'Display Range',
+    location: 'Location',
+    allLocations: 'All locations',
     required: 'Required',
     startDate: 'Start Date',
     endDate: 'End Date',
@@ -390,6 +425,11 @@ export default {
     selectResource: 'Select Resource',
     type: 'Type',
     product: 'Product',
+    location: 'Location',
+    locationFromProductHint: 'Matches the selected product master location; stored on save by the server',
+    allLocations: 'All locations',
+    adjustFilters: 'Customize filters',
+    adjustFiltersHint: 'Check the filters to show in the bar. Unchecked filters are hidden and their values are cleared.',
     quantity: 'Quantity',
     estimatedFinishTime: 'Est. Finish Time',
     isDelayed: 'Is Delayed',
@@ -436,6 +476,7 @@ export default {
     createFailed: 'Create failed',
     cancelled: 'Cancelled',
     orderNumberRequired: 'Please enter order number',
+    orderNumberOptionalPlaceholder: 'Leave blank to auto-assign order number',
     productRequired: 'Please select product',
     quantityRequired: 'Please enter quantity',
     dueDateRequired: 'Please select due date',
@@ -464,6 +505,8 @@ export default {
     startTime: 'Start Time',
     endTime: 'End Time',
     breakTime: 'Break Time (minutes)',
+    location: 'Location',
+    selectLocation: 'Select location',
     selectResource: 'Select resource',
     selectStartTime: 'Select start time',
     selectEndTime: 'Select end time',
@@ -577,6 +620,8 @@ export default {
     modifyFilter: 'Modify Filter',
     productCode: 'Product Code',
     productName: 'Product Name',
+    location: 'Location',
+    selectLocation: 'Select location',
     operationCount: 'Operation Count',
     operations: 'Operations',
     addOperation: 'Add Operation',
@@ -612,6 +657,8 @@ export default {
     resource: 'Resource',
     selectWorkCenter: 'Select Work Center',
     selectResource: 'Select Resource',
+    matrixLocation: 'Matrix location',
+    selectMatrixLocation: 'Location (global / work center)',
     saveMatrix: 'Save Matrix',
     description: 'Description',
     matrixExplanation: 'Rows represent "from" setup groups, columns represent "to" setup groups. Cell values are changeover time (hours).',

@@ -57,6 +57,14 @@ export const authApi = {
 
 // Master Data APIs
 export const masterDataApi = {
+  // Locations（位置主数据）
+  getLocations: () => api.get('/master-data/locations'),
+  getLocation: (code) => api.get(`/master-data/locations/${encodeURIComponent(code)}`),
+  createLocation: (data) => api.post('/master-data/locations', data),
+  updateLocation: (code, data) =>
+    api.put(`/master-data/locations/${encodeURIComponent(code)}`, data),
+  deleteLocation: (code) => api.delete(`/master-data/locations/${encodeURIComponent(code)}`),
+
   // Work Centers
   getWorkCenters: () => api.get('/master-data/work-centers'),
   getWorkCenter: (id) => api.get(`/master-data/work-centers/${id}`),
@@ -65,8 +73,14 @@ export const masterDataApi = {
   deleteWorkCenter: (id) => api.delete(`/master-data/work-centers/${id}`),
   
   // Resources
-  getResources: (workCenterId = null) => {
-    const params = workCenterId ? { work_center_id: workCenterId } : {}
+  getResources: (arg = null) => {
+    const params = {}
+    if (arg != null && typeof arg === 'object') {
+      if (arg.work_center_id != null) params.work_center_id = arg.work_center_id
+      if (arg.location) params.location = arg.location
+    } else if (arg != null) {
+      params.work_center_id = arg
+    }
     return api.get('/master-data/resources', { params })
   },
   getResource: (id) => api.get(`/master-data/resources/${id}`),
@@ -84,15 +98,21 @@ export const masterDataApi = {
   deleteShift: (id) => api.delete(`/master-data/shifts/${id}`),
   
   // Products
-  getProducts: () => api.get('/master-data/products'),
+  getProducts: (params = {}) => api.get('/master-data/products', { params }),
   getProduct: (id) => api.get(`/master-data/products/${id}`),
   createProduct: (data) => api.post('/master-data/products', data),
   updateProduct: (id, data) => api.put(`/master-data/products/${id}`, data),
   deleteProduct: (id) => api.delete(`/master-data/products/${id}`),
   
   // Routings
-  getRoutings: (productId = null) => {
-    const params = productId ? { product_id: productId } : {}
+  getRoutings: (arg = null) => {
+    const params = {}
+    if (arg != null && typeof arg === 'object') {
+      if (arg.product_id != null) params.product_id = arg.product_id
+      if (arg.location) params.location = arg.location
+    } else if (arg != null) {
+      params.product_id = arg
+    }
     return api.get('/master-data/routings', { params })
   },
   getRouting: (id) => api.get(`/master-data/routings/${id}`),
@@ -108,8 +128,8 @@ export const masterDataApi = {
 
 // Orders APIs
 export const ordersApi = {
-  getOrders: (status = null, orderType = null) => {
-    const params = {}
+  getOrders: (status = null, orderType = null, extra = {}) => {
+    const params = { ...extra }
     if (status) params.status = status
     if (orderType) params.order_type = orderType
     return api.get('/orders/', { params })
@@ -128,8 +148,8 @@ export const schedulingApi = {
   runScheduling: (data) => api.post('/scheduling/run', data),
   clearScheduling: (orderIds = null) => api.post('/scheduling/clear', orderIds ? { order_ids: orderIds } : null),
   rescheduleOperation: (data) => api.post('/scheduling/reschedule-operation', data),
-  getGanttData: (viewType = 'order', startDate = null, endDate = null) => {
-    const params = { view_type: viewType }
+  getGanttData: (viewType = 'order', startDate = null, endDate = null, extra = {}) => {
+    const params = { view_type: viewType, ...extra }
     if (startDate) params.start_date = startDate
     if (endDate) params.end_date = endDate
     return api.get('/scheduling/gantt-data', { params })
@@ -196,10 +216,11 @@ export const setupMatrixApi = {
   
   // Setup Matrix Entries
   getMatrixEntries: (params = {}) => api.get('/setup-matrix/matrix', { params }),
-  getMatrixGrid: (resourceId = null, workCenterId = null) => {
+  getMatrixGrid: (resourceId = null, workCenterId = null, location = null) => {
     const params = {}
-    if (resourceId !== null) params.resource_id = resourceId
-    if (workCenterId !== null) params.work_center_id = workCenterId
+    if (resourceId !== null && resourceId !== undefined) params.resource_id = resourceId
+    if (workCenterId !== null && workCenterId !== undefined) params.work_center_id = workCenterId
+    if (location) params.location = location
     return api.get('/setup-matrix/matrix/grid', { params })
   },
   createMatrixEntry: (data) => api.post('/setup-matrix/matrix', data),
@@ -207,12 +228,86 @@ export const setupMatrixApi = {
   deleteMatrixEntry: (id) => api.delete(`/setup-matrix/matrix/${id}`),
   
   // Query changeover time
-  getChangeoverTime: (fromProductId, toProductId, resourceId = null, workCenterId = null) => {
+  getChangeoverTime: (fromProductId, toProductId, resourceId = null, workCenterId = null, location = null) => {
     const params = { from_product_id: fromProductId, to_product_id: toProductId }
     if (resourceId) params.resource_id = resourceId
     if (workCenterId) params.work_center_id = workCenterId
+    if (location) params.location = location
     return api.get('/setup-matrix/changeover-time', { params })
   }
+}
+
+/** FastAPI 的 detail 可能是 string 或 {loc,msg,type}[]，不能直接 new Error(detail)（数组会得到空 message） */
+function formatFastApiDetail(detail) {
+  if (detail == null || detail === '') return ''
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const parts = detail.map((e) => {
+      if (e && typeof e === 'object') {
+        return e.msg || e.message || (Array.isArray(e.loc) ? e.loc.join('.') : '') || JSON.stringify(e)
+      }
+      return String(e)
+    })
+    return parts.filter(Boolean).join('; ')
+  }
+  if (typeof detail === 'object') return detail.msg || JSON.stringify(detail)
+  return String(detail)
+}
+
+// Excel 模板 / 导入：走 axios，与全局请求共用 Authorization 与 401 拦截（重新登录）
+export const dataManagementApi = {
+  downloadTemplate: async (dataType, locale = 'zh-CN') => {
+    try {
+      const blob = await api.get(
+        `/data-management/templates/${encodeURIComponent(dataType)}`,
+        {
+          params: { locale },
+          responseType: 'blob'
+        }
+      )
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(blob)
+      a.download = `${dataType}_template.xlsx`
+      a.click()
+      URL.revokeObjectURL(a.href)
+    } catch (e) {
+      if (e.response?.status === 401) {
+        throw e
+      }
+      if (e.response && e.response.data instanceof Blob) {
+        const text = await e.response.data.text()
+        let detail = 'Download failed'
+        try {
+          const j = JSON.parse(text)
+          detail = formatFastApiDetail(j.detail) || detail
+        } catch {
+          detail = text.slice(0, 200) || detail
+        }
+        throw new Error(detail)
+      }
+      throw e
+    }
+  },
+  importExcel: async (dataType, file) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    fd.append('data_type', dataType)
+    return api.post('/data-management/import', fd, {
+      transformRequest: [
+        (data, headers) => {
+          if (headers && typeof headers.delete === 'function') {
+            headers.delete('Content-Type')
+            headers.delete('content-type')
+          } else if (headers) {
+            delete headers['Content-Type']
+            delete headers['content-type']
+          }
+          return data
+        }
+      ]
+    })
+  },
+  clearData: (body) => api.post('/data-management/clear', body)
 }
 
 export default api

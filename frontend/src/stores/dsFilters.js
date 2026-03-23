@@ -55,7 +55,8 @@ export const useDSFiltersStore = defineStore('dsFilters', () => {
     return dsResources.value.map(r => ({
       id: r.id,
       name: r.name,
-      is_bottleneck: r.is_bottleneck || false
+      is_bottleneck: r.is_bottleneck || false,
+      location: r.location || ''
     }))
   })
 
@@ -63,7 +64,8 @@ export const useDSFiltersStore = defineStore('dsFilters', () => {
   const productOptions = computed(() => {
     return dsProducts.value.map(p => ({
       id: p.id,
-      name: p.product_description || p.product_code
+      name: p.product_description || p.product_code,
+      location: p.location || ''
     }))
   })
 
@@ -139,11 +141,45 @@ export const useDSFiltersStore = defineStore('dsFilters', () => {
     dsProductAssignments.value = data || []
   }
 
+  function locationQueryFromSelection() {
+    const params = {}
+    const pls = [
+      ...new Set(
+        selectedProductIds.value
+          .map((id) => {
+            const p = dsProducts.value.find((x) => x.id === id)
+            const loc = p?.location && String(p.location).trim()
+            return loc || null
+          })
+          .filter(Boolean)
+      )
+    ]
+    const rls = [
+      ...new Set(
+        selectedResourceIds.value
+          .map((id) => {
+            const r = dsResources.value.find((x) => x.id === id)
+            const loc = r?.location && String(r.location).trim()
+            return loc || null
+          })
+          .filter(Boolean)
+      )
+    ]
+    if (pls.length === 1) params.product_location = pls[0]
+    if (rls.length === 1) params.resource_location = rls[0]
+    return params
+  }
+
   // 加载DS订单数据
-  async function fetchDSOrders(status = null, orderType = null) {
+  // options.filterLocation：显式位置筛选（与产品/资源推导互斥，传则同时约束 product_location 与 resource_location）
+  async function fetchDSOrders(status = null, orderType = null, options = {}) {
     ordersLoading.value = true
     try {
-      const orders = await ordersApi.getOrders(status, orderType)
+      const raw = options.filterLocation != null ? String(options.filterLocation).trim() : ''
+      const locParams = raw
+        ? { product_location: raw, resource_location: raw }
+        : locationQueryFromSelection()
+      const orders = await ordersApi.getOrders(status, orderType, locParams)
       // 处理订单数据：当工序的计划开始/计划结束为空时，使用交货日期填充
       dsOrders.value = orders.map(order => {
         if (order.operations && order.operations.length > 0 && order.due_date) {
@@ -246,6 +282,7 @@ export const useDSFiltersStore = defineStore('dsFilters', () => {
     setDSSetupGroups,
     setDSProductAssignments,
     fetchDSOrders,
+    locationQueryFromSelection,
     // 详细计划表筛选方法
     setSelectedResources,
     setSelectedProducts,
