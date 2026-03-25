@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from typing import List, Optional
 
@@ -9,8 +9,35 @@ from ..services.location_catalog import (
     optional_location_code,
     require_location_code,
 )
+from ..services.rest_breaks import break_minutes_between, operating_break_duration_str
 
 router = APIRouter()
+
+
+def _sync_resource_operating_break(update_data: dict, db_resource: Optional[models.Resource] = None) -> None:
+    if db_resource is not None:
+        rs = update_data.get("operating_rest_start", db_resource.operating_rest_start)
+        re = update_data.get("operating_rest_end", db_resource.operating_rest_end)
+    else:
+        rs = update_data.get("operating_rest_start")
+        re = update_data.get("operating_rest_end")
+    rs = str(rs or "").strip()
+    re = str(re or "").strip()
+    if rs and re:
+        update_data["operating_break"] = operating_break_duration_str(break_minutes_between(rs, re))
+
+
+def _sync_shift_break_time(update_data: dict, db_shift: Optional[models.Shift] = None) -> None:
+    if db_shift is not None:
+        bs = update_data.get("break_start_time", db_shift.break_start_time)
+        be = update_data.get("break_end_time", db_shift.break_end_time)
+    else:
+        bs = update_data.get("break_start_time")
+        be = update_data.get("break_end_time")
+    bs = str(bs or "").strip()
+    be = str(be or "").strip()
+    if bs and be:
+        update_data["break_time"] = break_minutes_between(bs, be)
 
 
 # ==================== Locations 位置主数据 ====================
@@ -139,12 +166,12 @@ def delete_work_center(work_center_id: int, db: Session = Depends(get_db)):
 @router.get("/resources", response_model=List[schemas.ResourceWithWorkCenter])
 def get_resources(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = Query(5000, ge=1, le=50000, description="分页大小，默认一次返回至多 5000 条"),
     work_center_id: int = None,
     location: str = None,
     db: Session = Depends(get_db),
 ):
-    """获取所有资源"""
+    """获取所有资源（默认 limit 较大，便于下拉与主数据列表一致；可按 skip/limit 分页）"""
     query = db.query(models.Resource).options(joinedload(models.Resource.work_center))
     if work_center_id:
         query = query.filter(models.Resource.work_center_id == work_center_id)
@@ -175,6 +202,7 @@ def create_resource(resource: schemas.ResourceCreate, db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="资源编码已存在")
 
     data = resource.model_dump()
+    _sync_resource_operating_break(data, None)
     if data.get("location"):
         data["location"] = optional_location_code(db, data["location"], "资源位置")
     db_resource = models.Resource(**data)
@@ -198,6 +226,10 @@ def update_resource(resource_id: int, resource: schemas.ResourceUpdate, db: Sess
         )
     elif "location" in update_data and update_data["location"] in ("", None):
         update_data["location"] = None
+    for k in ("operating_rest_start", "operating_rest_end"):
+        if k in update_data and update_data[k] == "":
+            update_data[k] = None
+    _sync_resource_operating_break(update_data, db_resource)
     for key, value in update_data.items():
         setattr(db_resource, key, value)
 
@@ -257,6 +289,7 @@ def create_shift(shift: schemas.ShiftCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="班次位置须与所属资源位置一致")
     data = shift.model_dump()
     data["location"] = loc
+    _sync_shift_break_time(data, None)
     db_shift = models.Shift(**data)
     db.add(db_shift)
     db.commit()
@@ -284,6 +317,10 @@ def update_shift(shift_id: int, shift: schemas.ShiftUpdate, db: Session = Depend
         update_data["location"] = require_location_code(
             db, update_data["location"], "班次位置"
         )
+    for k in ("break_start_time", "break_end_time"):
+        if k in update_data and update_data[k] == "":
+            update_data[k] = None
+    _sync_shift_break_time(update_data, db_shift)
     for key, value in update_data.items():
         setattr(db_shift, key, value)
     res = (
@@ -296,6 +333,7 @@ def update_shift(shift_id: int, shift: schemas.ShiftUpdate, db: Session = Depend
         sloc = normalize_location_code(db_shift.location)
         if rloc and sloc and rloc != sloc:
             raise HTTPException(status_code=400, detail="班次位置须与所属资源位置一致")
+
     db.commit()
     db.refresh(db_shift)
     return db.query(models.Shift).options(

@@ -6,7 +6,7 @@
 - preview_mode=True: 排程结果存入内存缓存，不写入数据库
 - preview_mode=False: 排程结果直接写入数据库（原有行为）
 """
-from datetime import datetime, timedelta
+from datetime import date as date_type, datetime, timedelta
 from typing import List, Dict, Optional, Set
 from sqlalchemy.orm import Session
 import logging
@@ -28,38 +28,34 @@ class SchedulingEngine:
 
     def _order_ids_matching_locations(
         self,
-        product_location: Optional[str] = None,
-        resource_location: Optional[str] = None,
+        product_locations: Optional[List[str]] = None,
+        resource_locations: Optional[List[str]] = None,
     ) -> Optional[Set[int]]:
-        """产品 location 与资源 location AND；均未传则 None（不过滤）。"""
-        from sqlalchemy import exists, select
-        from sqlalchemy.orm import aliased
+        """按订单表 production_orders.location 精确筛选。
+
+        product_locations / resource_locations 为接口历史命名；合并去重后与订单 location 做 IN 匹配。
+        未维护订单 location 的订单不会命中（不按主数据或默认值推断）。
+        """
         from ..services.location_catalog import normalize_location_code
 
-        pl = normalize_location_code(product_location)
-        rl = normalize_location_code(resource_location)
-        if not pl and not rl:
+        def _norm_list(xs: Optional[List[str]]) -> List[str]:
+            if not xs:
+                return []
+            out: List[str] = []
+            for x in xs:
+                n = normalize_location_code(x)
+                if n:
+                    out.append(n)
+            return list(dict.fromkeys(out))
+
+        pls = _norm_list(product_locations)
+        rls = _norm_list(resource_locations)
+        combined = list(dict.fromkeys(pls + rls))
+        if not combined:
             return None
-        q = self.db.query(models.ProductionOrder.id)
-        if pl:
-            q = q.join(
-                models.Product,
-                models.Product.id == models.ProductionOrder.product_id,
-            ).filter(models.Product.location == pl)
-        if rl:
-            Op = aliased(models.Operation)
-            Res = aliased(models.Resource)
-            q = q.filter(
-                exists(
-                    select(1)
-                    .select_from(Op)
-                    .join(Res, Op.resource_id == Res.id)
-                    .where(
-                        Op.order_id == models.ProductionOrder.id,
-                        Res.location == rl,
-                    )
-                )
-            )
+        q = self.db.query(models.ProductionOrder.id).filter(
+            models.ProductionOrder.location.in_(combined)
+        )
         return {row[0] for row in q.distinct().all()}
 
     def _order_ids_with_resources(self, resource_ids: Set[int]) -> Set[int]:
@@ -84,6 +80,7 @@ class SchedulingEngine:
         shifts = (
             self.db.query(models.Shift)
             .filter(models.Shift.resource_id == resource.id)
+            .order_by(models.Shift.id)
             .all()
         )
         target = matrix_location_for_resource(resource)
@@ -1032,8 +1029,8 @@ class SchedulingEngine:
         end_date: datetime = None,
         view_type: str = "order",  # "order" 或 "resource"
         include_cache: bool = True,  # 是否包含缓存的未保存排程
-        product_location: Optional[str] = None,
-        resource_location: Optional[str] = None,
+        product_locations: Optional[List[str]] = None,
+        resource_locations: Optional[List[str]] = None,
     ) -> schemas.GanttData:
         """
         获取甘特图数据
@@ -1063,7 +1060,7 @@ class SchedulingEngine:
                 cached_ops[cached_op.operation_id] = cached_op
         
         loc_order_ids = self._order_ids_matching_locations(
-            product_location, resource_location
+            product_locations, resource_locations
         )
         if view_type == "order":
             tasks, links = self._get_order_view_data(
@@ -1628,14 +1625,15 @@ class SchedulingEngine:
         due_date_end: Optional[str] = None,
         schedule_date_start: Optional[str] = None,
         schedule_date_end: Optional[str] = None,
-        product_location: Optional[str] = None,
-        resource_location: Optional[str] = None,
+        product_locations: Optional[List[str]] = None,
+        resource_locations: Optional[List[str]] = None,
         resource_ids: Optional[List[int]] = None,
     ) -> schemas.KPIDashboard:
         """获取KPI仪表板数据。
 
         - 订单 KPI / 平均提前期：按 due_date_start/due_date_end 过滤（保持原有口径）
         - 资源利用率 / 每日产能负荷 / 资源利用详情：按 schedule_date_start/schedule_date_end 过滤排程时间窗口内的订单
+        - product_locations/resource_locations：合并后按 production_orders.location 与订单集合求交
         - resource_ids：非空时与上述订单集合求交，且利用率/产能明细仅统计这些资源
         """
         due_order_ids_filter: Optional[Set[int]] = None
@@ -1735,7 +1733,7 @@ class SchedulingEngine:
                 schedule_window_end_dt = None
 
         loc_ids = self._order_ids_matching_locations(
-            product_location, resource_location
+            product_locations, resource_locations
         )
         if loc_ids is not None:
             if due_order_ids_filter is not None:
@@ -1802,31 +1800,11 @@ class SchedulingEngine:
         minutes = max(0.0, end_min - start_min - break_minutes)
         return round(minutes / 60 * 100) / 100
 
-    # 与 DS 资源视图无班次时相同的默认工作时间（defaultStart/defaultEnd/defaultBreak）
-    _DS_DEFAULT_START = "09:00"
-    _DS_DEFAULT_END = "18:00"
-    _DS_DEFAULT_BREAK_MINUTES = 0
-
     def _get_production_hours_per_day(self, resource) -> float:
-        """资源每日生产时间（小时）。无班次时与 DS 资源视图一致取 9 小时（09:00-18:00）；有班次时为班次(结束−开始−休息)之和。"""
-        shifts = self._shifts_for_resource(resource)
-        if not shifts:
-            # 资源主数据中无班次：与 DS 资源视图展示一致，默认 09:00-18:00 = 9 小时
-            return 9.0
-        # 资源主数据中有班次：每日可用时间 = 班次(结束−开始−休息)之和
-        total = 0.0
-        for s in shifts:
-            total += self._shift_production_hours(s.start_time, s.end_time, s.break_time or 0)
-        if total > 0:
-            return round(total, 2)
-        return 9.0
+        """资源每日可排产小时（与找槽一致：按休息起止挖空）。"""
+        from ..services.working_segments import daily_productive_hours_for_resource
 
-    def _get_working_windows(self, resource) -> List[tuple]:
-        """返回资源每日工作时段列表，每项 (start_hm, end_hm, break_minutes)。无班次时与 DS 默认一致。"""
-        shifts = self._shifts_for_resource(resource)
-        if not shifts:
-            return [(self._DS_DEFAULT_START, self._DS_DEFAULT_END, self._DS_DEFAULT_BREAK_MINUTES)]
-        return [(s.start_time, s.end_time, s.break_time or 0) for s in shifts]
+        return daily_productive_hours_for_resource(self.db, resource.id)
 
     def _parse_hm_to_timedelta(self, time_str: str) -> timedelta:
         """将 'HH:mm' 或 'HH:mm:ss' 转为 timedelta（从 0 点起）。"""
@@ -1837,31 +1815,72 @@ class SchedulingEngine:
         return timedelta(hours=h, minutes=m, seconds=sec)
 
     def _get_working_hours_in_interval(self, resource, interval_start: datetime, interval_end: datetime) -> float:
-        """区间 [interval_start, interval_end] 内落在资源工作时段内的小时数（仅用于 KPI 三视图）。"""
-        if interval_end <= interval_start:
-            return 0.0
-        windows = self._get_working_windows(resource)
-        total = 0.0
-        cur = interval_start
-        while cur < interval_end:
-            day_start = cur.replace(hour=0, minute=0, second=0, microsecond=0)
-            day_end = day_start + timedelta(days=1)
-            seg_end = min(interval_end, day_end)
-            for start_hm, end_hm, break_minutes in windows:
-                work_start = day_start + self._parse_hm_to_timedelta(start_hm)
-                work_end = day_start + self._parse_hm_to_timedelta(end_hm)
-                # 去掉资源班次中的休息时间：将休息从班次末尾整体扣除，而不是在区间内均匀摊分
-                if break_minutes and break_minutes > 0:
-                    work_end = max(
-                        work_start,
-                        work_end - timedelta(minutes=break_minutes)
-                    )
-                clip_s = max(cur, work_start)
-                clip_e = min(seg_end, work_end)
-                if clip_e > clip_s:
-                    total += (clip_e - clip_s).total_seconds() / 3600
-            cur = seg_end
-        return round(total, 2)
+        """区间与可排产时段（含休息起止挖空）的交集小时数（KPI 等）。"""
+        from ..services.working_segments import productive_hours_in_datetime_range
+
+        return productive_hours_in_datetime_range(
+            self.db, resource.id, interval_start, interval_end
+        )
+
+    def _coerce_range_datetimes(
+        self, start_date, end_date
+    ) -> tuple:
+        """将 date / datetime 规范为 datetime，供利用率桶迭代使用。"""
+        if type(start_date) is date_type:
+            start_date = datetime.combine(start_date, datetime.min.time())
+        if type(end_date) is date_type:
+            end_date = datetime.combine(end_date, datetime.max.time())
+        return start_date, end_date
+
+    def _iter_ds_utilization_buckets(
+        self, range_start: datetime, range_end: datetime, zoom_level: int
+    ):
+        """
+        详细计划表资源利用率：按固定时间桶划分 [bs, be)（be 为桶右边界，可与 range 裁剪）。
+        zoom 0=1h，1=4h，>=2=按自然日（与前端按日列宽一致）。
+        """
+        rs, re = range_start, range_end
+        if re <= rs:
+            return
+        z = int(zoom_level) if zoom_level is not None else 1
+
+        if z >= 2:
+            cur_d = rs.date()
+            end_d = re.date()
+            while cur_d <= end_d:
+                b0 = datetime.combine(cur_d, datetime.min.time())
+                b1 = b0 + timedelta(days=1)
+                bs = max(b0, rs)
+                be = min(b1, re)
+                if be > bs:
+                    yield (bs, be)
+                cur_d += timedelta(days=1)
+            return
+
+        if z == 1:
+            cur_d = rs.date()
+            end_d = re.date()
+            while cur_d <= end_d:
+                day0 = datetime.combine(cur_d, datetime.min.time())
+                for h in (0, 4, 8, 12, 16, 20):
+                    b0 = day0 + timedelta(hours=h)
+                    b1 = b0 + timedelta(hours=4)
+                    bs = max(b0, rs)
+                    be = min(b1, re)
+                    if be > bs:
+                        yield (bs, be)
+                cur_d += timedelta(days=1)
+            return
+
+        # z == 0：按整点 1 小时
+        cur = rs.replace(minute=0, second=0, microsecond=0)
+        while cur < re:
+            b1 = cur + timedelta(hours=1)
+            bs = max(cur, rs)
+            be = min(b1, re)
+            if be > bs:
+                yield (bs, be)
+            cur = b1
     
     def _calculate_resource_utilization(
         self,
@@ -2334,7 +2353,9 @@ class SchedulingEngine:
         resource_ids: List[int] = None,
         start_date: datetime = None,
         end_date: datetime = None,
-        zoom_level: int = 1
+        zoom_level: int = 1,
+        product_locations: Optional[List[str]] = None,
+        resource_locations: Optional[List[str]] = None,
     ) -> Dict:
         """
         获取资源利用率时间序列数据
@@ -2344,31 +2365,41 @@ class SchedulingEngine:
             start_date: 开始日期
             end_date: 结束日期
             zoom_level: 缩放级别 (0=小时, 1=4小时, 2=天, 3=周, 4=月)
+            product_locations/resource_locations: 与 KPI/甘特一致，合并后按 production_orders.location 过滤工序
         
         Returns:
-            资源利用率数据
+            资源利用率数据。time_slots 中 utilization 为 0~1+ 的比率：
+            桶内已排产有效工时（与 KPI 相同的可排产时段交集）/ 该资源「全天」标准可用产能（与启发式一致的每日可排产小时）。
         """
         # 默认时间范围
         if not start_date:
             start_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         if not end_date:
             end_date = start_date + timedelta(days=30)
-        
-        # 根据缩放级别确定时间槽大小（小时）
-        slot_hours_map = {
-            0: 1,    # 小时视图 - 1小时
-            1: 4,    # 4小时视图 - 4小时
-            2: 8,    # 天视图 - 8小时（一个工作日）
-            3: 24,   # 周视图 - 24小时（一天）
-            4: 168   # 月视图 - 168小时（一周）
-        }
-        slot_hours = slot_hours_map.get(zoom_level, 4)
+
+        start_date, end_date = self._coerce_range_datetimes(start_date, end_date)
         
         # 获取资源
         query = self.db.query(models.Resource)
         if resource_ids:
             query = query.filter(models.Resource.id.in_(resource_ids))
         resources = query.all()
+
+        loc_order_ids = self._order_ids_matching_locations(
+            product_locations, resource_locations
+        )
+        if loc_order_ids is not None and len(loc_order_ids) == 0:
+            result = []
+            for resource in resources:
+                production_hours_per_day = self._get_production_hours_per_day(resource)
+                result.append({
+                    "resource_id": resource.id,
+                    "resource_name": resource.name,
+                    "description": resource.description or "",
+                    "capacity": production_hours_per_day,
+                    "time_slots": [],
+                })
+            return {"data": result}
         
         # 建立工作中心到资源的映射（用于待排程工序）
         work_center_to_resource = {}
@@ -2401,6 +2432,12 @@ class SchedulingEngine:
                 # 1. 从缓存中获取分配到该资源的工序
                 cached_ops_for_resource = cached_ops_by_resource.get(resource.id, [])
                 for cached_op in cached_ops_for_resource:
+                    if loc_order_ids is not None:
+                        op_db = self.db.query(models.Operation).filter(
+                            models.Operation.id == cached_op.operation_id
+                        ).first()
+                        if not op_db or op_db.order_id not in loc_order_ids:
+                            continue
                     if cached_op.scheduled_start and cached_op.scheduled_end:
                         all_operations.append({
                             'start': cached_op.scheduled_start,
@@ -2409,12 +2446,15 @@ class SchedulingEngine:
                         })
                 
                 # 2. 添加数据库中该资源的已排程工序（不在缓存中的）
-                db_scheduled = self.db.query(models.Operation).filter(
+                db_sched_q = self.db.query(models.Operation).filter(
                     models.Operation.resource_id == resource.id,
                     models.Operation.scheduled_start != None,
                     models.Operation.scheduled_end != None,
                     ~models.Operation.id.in_(list(cached_ops.keys())) if cached_ops else True
-                ).all()
+                )
+                if loc_order_ids is not None:
+                    db_sched_q = db_sched_q.filter(models.Operation.order_id.in_(loc_order_ids))
+                db_scheduled = db_sched_q.all()
                 
                 for op in db_scheduled:
                     all_operations.append({
@@ -2425,11 +2465,14 @@ class SchedulingEngine:
             else:
                 # 没有缓存数据时：使用数据库中的排程数据
                 # 1. 已排程的工序（有 scheduled_start/scheduled_end）
-                scheduled_operations = self.db.query(models.Operation).filter(
+                sched_q = self.db.query(models.Operation).filter(
                     models.Operation.resource_id == resource.id,
                     models.Operation.scheduled_start != None,
                     models.Operation.scheduled_end != None
-                ).all()
+                )
+                if loc_order_ids is not None:
+                    sched_q = sched_q.filter(models.Operation.order_id.in_(loc_order_ids))
+                scheduled_operations = sched_q.all()
                 
                 for op in scheduled_operations:
                     all_operations.append({
@@ -2439,10 +2482,13 @@ class SchedulingEngine:
                     })
                 
                 # 2. 待排程的工序（已分配资源但没有排程时间）
-                pending_with_resource = self.db.query(models.Operation).filter(
+                pwr_q = self.db.query(models.Operation).filter(
                     models.Operation.resource_id == resource.id,
                     models.Operation.scheduled_start == None  # 没有排程时间
-                ).all()
+                )
+                if loc_order_ids is not None:
+                    pwr_q = pwr_q.filter(models.Operation.order_id.in_(loc_order_ids))
+                pending_with_resource = pwr_q.all()
                 
                 for op in pending_with_resource:
                     # 使用订单交货日期作为计划时间
@@ -2457,13 +2503,16 @@ class SchedulingEngine:
                         })
                 
                 # 3. 待排程的工序（没有分配资源，通过工作中心匹配）
-                pending_without_resource = self.db.query(models.Operation).join(
+                pwor_q = self.db.query(models.Operation).join(
                     models.RoutingOperation,
                     models.Operation.routing_operation_id == models.RoutingOperation.id
                 ).filter(
                     models.Operation.resource_id == None,  # 未分配资源
                     models.RoutingOperation.work_center_id == resource.work_center_id  # 通过工作中心匹配
-                ).all()
+                )
+                if loc_order_ids is not None:
+                    pwor_q = pwor_q.filter(models.Operation.order_id.in_(loc_order_ids))
+                pending_without_resource = pwor_q.all()
                 
                 for op in pending_without_resource:
                     # 使用订单交货日期作为计划时间
@@ -2477,36 +2526,27 @@ class SchedulingEngine:
                             'run_time': op.run_time
                         })
             
-            # 按实际占用时间段生成条形图：合并重叠工序区间，每条与资源甘特占用时间一致
-            intervals = [(op['start'], op['end']) for op in all_operations]
-            intervals.sort(key=lambda x: x[0])
-            merged = []
-            for s, e in intervals:
-                if merged and s <= merged[-1][1]:
-                    merged[-1] = (merged[-1][0], max(merged[-1][1], e))
-                else:
-                    merged.append((s, e))
+            # 按固定时间桶展示占用；比率分母为「全天」标准可用产能（_get_production_hours_per_day）
             time_slots = []
-            for seg_start, seg_end in merged:
-                clip_start = max(seg_start, start_date)
-                clip_end = min(seg_end, end_date)
-                if clip_end <= clip_start:
-                    continue
-                seg_hours = (clip_end - clip_start).total_seconds() / 3600
-                total_used = 0
-                for op_data in all_operations:
-                    op_start, op_end = op_data['start'], op_data['end']
-                    if op_start < clip_end and op_end > clip_start:
-                        o_s = max(op_start, clip_start)
-                        o_e = min(op_end, clip_end)
-                        if o_e > o_s:
-                            total_used += (o_e - o_s).total_seconds() / 3600
-                utilization = (total_used / seg_hours) if seg_hours > 0 else 0
-                time_slots.append({
-                    "start": clip_start.strftime("%Y-%m-%d %H:%M"),
-                    "end": clip_end.strftime("%Y-%m-%d %H:%M"),
-                    "utilization": round(utilization, 2)
-                })
+            denom = production_hours_per_day
+            if denom > 0:
+                for bs, be in self._iter_ds_utilization_buckets(start_date, end_date, zoom_level):
+                    numer = 0.0
+                    for op_data in all_operations:
+                        op_start, op_end = op_data['start'], op_data['end']
+                        if op_start < be and op_end > bs:
+                            o_s = max(op_start, bs)
+                            o_e = min(op_end, be)
+                            if o_e > o_s:
+                                numer += self._get_working_hours_in_interval(resource, o_s, o_e)
+                    if numer <= 0:
+                        continue
+                    utilization = numer / denom
+                    time_slots.append({
+                        "start": bs.strftime("%Y-%m-%d %H:%M"),
+                        "end": be.strftime("%Y-%m-%d %H:%M"),
+                        "utilization": round(utilization, 4)
+                    })
             time_slots.sort(key=lambda x: x["start"])
 
             result.append({

@@ -34,6 +34,8 @@ def _sqlite_migrate_columns():
         ("resources", "operating_start", "VARCHAR(30)"),
         ("resources", "operating_end", "VARCHAR(30)"),
         ("resources", "operating_break", "VARCHAR(30)"),
+        ("resources", "operating_rest_start", "VARCHAR(30)"),
+        ("resources", "operating_rest_end", "VARCHAR(30)"),
         ("resources", "utilization_percent", "FLOAT"),
         ("resources", "production_hours", "FLOAT"),
         ("resources", "capacity_value", "FLOAT"),
@@ -51,7 +53,13 @@ def _sqlite_migrate_columns():
         ("routings", "location", "VARCHAR(50)"),
         ("production_orders", "location", "VARCHAR(50)"),
         ("shifts", "location", "VARCHAR(50)"),
+        ("shifts", "break_start_time", "VARCHAR(10)"),
+        ("shifts", "break_end_time", "VARCHAR(10)"),
         ("setup_matrix", "location", "VARCHAR(50)"),
+        ("users", "department", "VARCHAR(100)"),
+        ("users", "date_format", "VARCHAR(40)"),
+        ("users", "time_format", "VARCHAR(10)"),
+        ("users", "user_timezone", "VARCHAR(80)"),
     ]
     conn = sqlite3.connect(DB_PATH)
     try:

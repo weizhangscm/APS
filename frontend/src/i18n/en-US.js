@@ -41,8 +41,39 @@ export default {
     admin: 'Administrator',
     regularUser: 'Regular User',
     confirmLogout: 'Are you sure you want to logout?',
-    logoutSuccess: 'Logged out successfully',
-    profileComingSoon: 'Profile - Coming soon'
+    logoutSuccess: 'Logged out successfully'
+  },
+
+  profilePage: {
+    title: 'Profile',
+    username: 'Account',
+    usernameHint: 'Current sign-in account (read-only)',
+    fullName: 'Display name',
+    email: 'Email',
+    department: 'Department',
+    dateFormat: 'Date format',
+    timeFormat: 'Time format',
+    timezone: 'Time zone',
+    save: 'Save',
+    loadFailed: 'Failed to load profile',
+    saveSuccess: 'Saved successfully',
+    saveFailed: 'Save failed',
+    emailInvalid: 'Please enter a valid email address',
+    selectDateFormatPlaceholder: 'Select date display format',
+    selectTimeFormatPlaceholder: 'Select time display (12h / 24h)',
+    selectTimezonePlaceholder: 'Select time zone',
+    dateFormats: {
+      'YYYY-MM-DD': 'YYYY-MM-DD (2026-03-24)',
+      'MM/DD/YYYY': 'MM/DD/YYYY (03/24/2026)',
+      'DD/MM/YYYY': 'DD/MM/YYYY (24/03/2026)',
+      'DD.MM.YYYY': 'DD.MM.YYYY (24.03.2026)',
+      'YYYY/MM/DD': 'YYYY/MM/DD (2026/03/24)',
+      'YYYY年MM月DD日': 'YYYY年MM月DD日 (2026-03-24)'
+    },
+    timeFormats: {
+      '24h': '24-hour (14:30)',
+      '12h': '12-hour (2:30 PM)'
+    }
   },
 
   dataExcel: {
@@ -163,6 +194,9 @@ export default {
     allLocations: 'All locations',
     resource: 'Resource',
     allResources: 'All resources',
+    selectLocations: 'Select locations',
+    selectResources: 'Select resources',
+    noResourcesAtLocation: 'No resources at this location',
     shortcuts: {
       thisWeek: 'This Week',
       thisMonth: 'This Month',
@@ -184,7 +218,10 @@ export default {
     unitPcs: '',
     unitHours: 'h',
     usedCapacity: 'Used Capacity',
-    totalCapacityLegend: 'Total Capacity'
+    totalCapacityLegend: 'Total Capacity',
+    selectDateRangeRequired: 'Please select a date range',
+    selectLocationRequired: 'Please select at least one location',
+    selectResourcesRequired: 'Please select at least one resource'
   },
 
   // Detailed Schedule View
@@ -192,6 +229,8 @@ export default {
     displayRange: 'Display Range',
     location: 'Location',
     allLocations: 'All locations',
+    selectLocations: 'Select locations',
+    noResourcesAtLocation: 'No resources at this location',
     required: 'Required',
     startDate: 'Start Date',
     endDate: 'End Date',
@@ -232,6 +271,9 @@ export default {
     resourceUtilizationChart: 'Resource Utilization',
     selectResourcesFirst: 'Please select resources to schedule first',
     selectResourcesOrProducts: 'Please select resources or products first',
+    selectDisplayRangeRequired: 'Please select a display date range',
+    selectLocationRequired: 'Please select at least one location',
+    selectResourcesRequired: 'Please select at least one resource',
     finiteCapacityHint: 'Search for sufficiently large idle time slots in existing resource scheduling (finite capacity)',
     internalRelationsHint: 'Not consider: only schedule operations on selected resources; Always consider: automatically adjust other operations within orders to maintain time relationships',
     orderNumber: 'Order Number',
@@ -423,11 +465,14 @@ export default {
     endDate: 'End Date',
     resource: 'Resource',
     selectResource: 'Select Resource',
+    selectResources: 'Select resources',
     type: 'Type',
     product: 'Product',
     location: 'Location',
     locationFromProductHint: 'Matches the selected product master location; stored on save by the server',
     allLocations: 'All locations',
+    selectLocations: 'Select locations',
+    noResourcesAtLocation: 'No resources at this location',
     adjustFilters: 'Customize filters',
     adjustFiltersHint: 'Check the filters to show in the bar. Unchecked filters are hidden and their values are cleared.',
     quantity: 'Quantity',
@@ -504,7 +549,10 @@ export default {
     shiftName: 'Shift Name',
     startTime: 'Start Time',
     endTime: 'End Time',
+    breakStart: 'Rest Start',
+    breakEnd: 'Rest End',
     breakTime: 'Break Time (minutes)',
+    breakTimeAutoHint: 'Calculated from rest start and end',
     location: 'Location',
     selectLocation: 'Select location',
     selectResource: 'Select resource',
@@ -589,7 +637,10 @@ export default {
     close: 'Close',
     start: 'Start',
     end: 'End',
+    restStart: 'Rest Start',
+    restEnd: 'Rest End',
     breakPeriod: 'Break Period',
+    breakPeriodAutoHint: 'Auto-calculated from rest start/end',
     utilizationPercent: 'Utilization %',
     capacity: 'Capacity',
     workCenterDesc: 'Work Center Description',
@@ -726,7 +777,7 @@ export default {
     applyAdjustment: 'Apply Adjustment',
     resourceName: 'Resource Name',
     durationH: 'Duration(H)',
-    capacityHeader: 'Capacity',
+    capacityHeader: 'Utilization',
     noData: 'No Data',
     unitPcs: 'pcs',
     unitHours: 'hours',

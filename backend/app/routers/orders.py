@@ -1,13 +1,16 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import exists, select
-from sqlalchemy.orm import Session, aliased, joinedload
-from typing import List, Union
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.orm import Session, joinedload
+from typing import List, Optional, Union
 
 from ..database import get_db
 from .. import models, schemas
-from ..services.location_catalog import normalize_location_code, require_location_code
+from ..services.location_catalog import (
+    normalize_location_code,
+    parse_location_filter_codes,
+    require_location_code,
+)
 
 router = APIRouter()
 
@@ -140,13 +143,19 @@ def get_orders(
     order_type: str = None,
     product_location: str = None,
     resource_location: str = None,
+    product_locations: Optional[str] = Query(
+        None, description="逗号分隔的产品位置代码；非空时优先于 product_location"
+    ),
+    resource_locations: Optional[str] = Query(
+        None, description="逗号分隔的资源位置代码；非空时优先于 resource_location"
+    ),
     db: Session = Depends(get_db),
 ):
     """获取所有订单
     
     - **order_type**: 订单类型过滤 - planned(计划订单) 或 production(生产订单)
     - **status**: 状态过滤
-    - **product_location** / **resource_location**: AND 筛选（产品 location 与订单下任一工序资源 location）
+    - **product_location(s)** / **resource_location(s)**: 合并后与 **订单** production_orders.location 做 IN 精确匹配（不按产品/资源主数据推断）
     """
     query = db.query(models.ProductionOrder).options(
         joinedload(models.ProductionOrder.product),
@@ -156,28 +165,11 @@ def get_orders(
         query = query.filter(models.ProductionOrder.status == status)
     if order_type:
         query = query.filter(models.ProductionOrder.order_type == order_type)
-    if product_location:
-        pl = normalize_location_code(product_location)
-        if pl:
-            query = query.join(
-                models.Product, models.Product.id == models.ProductionOrder.product_id
-            ).filter(models.Product.location == pl)
-    if resource_location:
-        rl = normalize_location_code(resource_location)
-        if rl:
-            Op = aliased(models.Operation)
-            Res = aliased(models.Resource)
-            query = query.filter(
-                exists(
-                    select(1)
-                    .select_from(Op)
-                    .join(Res, Op.resource_id == Res.id)
-                    .where(
-                        Op.order_id == models.ProductionOrder.id,
-                        Res.location == rl,
-                    )
-                )
-            )
+    pls = parse_location_filter_codes(product_locations, product_location) or []
+    rls = parse_location_filter_codes(resource_locations, resource_location) or []
+    loc_codes = list(dict.fromkeys(pls + rls))
+    if loc_codes:
+        query = query.filter(models.ProductionOrder.location.in_(loc_codes))
     return query.order_by(models.ProductionOrder.due_date).offset(skip).limit(limit).distinct().all()
 
 

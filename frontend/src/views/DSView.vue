@@ -13,7 +13,7 @@
           :start-placeholder="t('dsView.startDate')"
           :end-placeholder="t('dsView.endDate')"
           :shortcuts="dateShortcuts"
-          format="YYYY.MM.DD"
+          :format="datePickerDisplayFormat"
           value-format="YYYY-MM-DD"
           style="width: 280px"
           :prefix-icon="Calendar"
@@ -21,14 +21,29 @@
       </div>
 
       <div class="filter-group">
-        <label class="filter-label">{{ t('dsView.location') }}:</label>
+        <label class="filter-label">
+          {{ t('dsView.location') }}:<span class="required">*</span>
+        </label>
         <el-select
           v-model="filterLocation"
-          clearable
+          multiple
+          collapse-tags
+          collapse-tags-tooltip
           filterable
-          :placeholder="t('dsView.allLocations')"
-          style="width: 200px"
+          :placeholder="t('dsView.selectLocations')"
+          style="width: 220px"
         >
+          <template #header>
+            <div class="select-header-options">
+              <el-checkbox
+                v-model="allDsLocationsSelected"
+                :indeterminate="dsLocationsIndeterminate"
+                @change="handleSelectAllDsLocations"
+              >
+                {{ t('dsView.selectLocations') }}
+              </el-checkbox>
+            </div>
+          </template>
           <el-option
             v-for="loc in locationMasterOptions"
             :key="loc.code"
@@ -39,13 +54,16 @@
       </div>
       
       <div class="filter-group">
-        <label class="filter-label">{{ t('dsView.resourceName') }}:</label>
+        <label class="filter-label">
+          {{ t('dsView.resourceName') }}:<span class="required">*</span>
+        </label>
         <el-select
           v-model="selectedResources"
           multiple
           collapse-tags
           collapse-tags-tooltip
-          :placeholder="t('dsView.selectResources')"
+          :clearable="false"
+          :placeholder="resourceSelectPlaceholder"
           style="width: 220px"
           @change="handleResourceChange"
         >
@@ -337,7 +355,7 @@
             :placeholder="t('dsView.selectExpectedDate')"
             style="width: 100%"
             value-format="YYYY-MM-DD"
-            format="YYYY-MM-DD"
+            :format="datePickerDisplayFormat"
             :prefix-icon="Calendar"
           />
         </el-form-item>
@@ -473,7 +491,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
   Calendar,
@@ -491,6 +509,7 @@ import { masterDataApi } from '@/api'
 import SimpleGanttTable from '@/components/SimpleGanttTable.vue'
 import SimpleProductTable from '@/components/SimpleProductTable.vue'
 import UtilizationChart from '@/components/UtilizationChart.vue'
+import { elementDatePickerDisplayFormat } from '@/utils/displayDateTime'
 
 const schedulingStore = useSchedulingStore()
 const dsFiltersStore = useDSFiltersStore()
@@ -499,6 +518,8 @@ const t = (key) => i18nStore.t(key)
 const locale = () => (i18nStore.currentLocale?.value ?? i18nStore.currentLocale ?? 'zh-CN')
 const trMsg = (msg) => translateBackendMessage(msg, t, locale())
 const trErr = (err) => translateBackendError(err, t, locale())
+
+const datePickerDisplayFormat = computed(() => elementDatePickerDisplayFormat())
 
 // ===== 筛选条件持久化 =====
 const STORAGE_KEY = 'ds_view_filters'
@@ -616,8 +637,16 @@ const selectedResources = ref(savedFilters?.selectedResources || [])
 const resourceOptions = ref([])  // 所有资源
 const bottleneckOnly = ref(savedFilters?.bottleneckOnly ?? true)  // 是否只显示瓶颈资源，默认勾选
 
-const filterLocation = ref(savedFilters?.filterLocation || '')
+function normalizeSavedLocationFilter(raw) {
+  if (Array.isArray(raw)) return raw.map((x) => String(x)).filter((s) => s.trim())
+  if (raw != null && String(raw).trim()) return [String(raw).trim()]
+  return []
+}
+
+const filterLocation = ref(normalizeSavedLocationFilter(savedFilters?.filterLocation))
 const locationMasterOptions = ref([])
+/** 初始化写入默认位置/资源时跳过 filterLocation 的 watch，避免在未选资源时先拉取并清空图表 */
+const suppressFilterDrivenReload = ref(false)
 
 const dsLocationOptionLabel = (loc) => {
   if (!loc) return ''
@@ -634,10 +663,17 @@ const loadLocationMaster = async () => {
   }
 }
 
+const normLocationCode = (v) => (v != null && String(v).trim() ? String(v).trim() : '')
+
+const filterLocationCodesNorm = computed(() =>
+  [...new Set((Array.isArray(filterLocation.value) ? filterLocation.value : []).map(normLocationCode).filter(Boolean))]
+)
+
 const buildGanttLocationParams = () => {
-  const explicit = filterLocation.value && String(filterLocation.value).trim()
-  if (explicit) {
-    return { product_location: explicit, resource_location: explicit }
+  const explicit = filterLocationCodesNorm.value
+  if (explicit.length > 0) {
+    const joined = explicit.join(',')
+    return { product_locations: joined, resource_locations: joined }
   }
   const pls = [
     ...new Set(
@@ -655,17 +691,54 @@ const buildGanttLocationParams = () => {
   ]
   const locParams = {}
   if (pls.length === 1) locParams.product_location = pls[0]
+  else if (pls.length > 1) locParams.product_locations = pls.join(',')
   if (rls.length === 1) locParams.resource_location = rls[0]
+  else if (rls.length > 1) locParams.resource_locations = rls.join(',')
   return locParams
 }
 
-// 根据瓶颈筛选后的资源列表
+// 先按「位置」筛资源（与主数据 resource.location 一致），再按瓶颈
 const filteredResourceOptions = computed(() => {
-  if (bottleneckOnly.value) {
-    return resourceOptions.value.filter(r => r.is_bottleneck)
+  let list = resourceOptions.value
+  const codes = filterLocationCodesNorm.value
+  if (codes.length > 0) {
+    const set = new Set(codes)
+    list = list.filter((r) => set.has(normLocationCode(r.location)))
   }
-  return resourceOptions.value
+  if (bottleneckOnly.value) {
+    list = list.filter((r) => r.is_bottleneck)
+  }
+  return list
 })
+
+const resourceSelectPlaceholder = computed(() => {
+  if (filterLocationCodesNorm.value.length > 0 && filteredResourceOptions.value.length === 0) {
+    return t('dsView.noResourcesAtLocation')
+  }
+  return t('dsView.selectResources')
+})
+
+const allDsLocationsSelected = computed(() => {
+  const options = locationMasterOptions.value
+  if (options.length === 0) return false
+  const selected = new Set(filterLocation.value)
+  return selected.size === options.length && options.every((loc) => selected.has(loc.code))
+})
+
+const dsLocationsIndeterminate = computed(() => {
+  const options = locationMasterOptions.value
+  const selected = new Set(filterLocation.value)
+  const n = options.filter((loc) => selected.has(loc.code)).length
+  return n > 0 && n < options.length
+})
+
+const handleSelectAllDsLocations = (val) => {
+  if (val) {
+    filterLocation.value = locationMasterOptions.value.map((loc) => loc.code)
+  } else {
+    filterLocation.value = []
+  }
+}
 
 // 资源全选相关 - 基于筛选后的列表
 const allResourcesSelected = computed(() => {
@@ -696,6 +769,22 @@ const handleSelectAllResources = (val) => {
 const handleBottleneckChange = (val) => {
   // 清空已选择的资源，让用户重新选择
   selectedResources.value = []
+}
+
+function getDsFilterValidationError() {
+  const [startDate, endDate] = dateRange.value || []
+  if (!startDate || !endDate) return t('dsView.selectDisplayRangeRequired')
+  if (filterLocationCodesNorm.value.length === 0) return t('dsView.selectLocationRequired')
+  if (selectedResources.value.length === 0) return t('dsView.selectResourcesRequired')
+  return null
+}
+
+function clearDetailedPlanChartData() {
+  schedulingStore.$patch({
+    ganttData: { data: [], links: [] },
+    productGanttData: { data: [], links: [] }
+  })
+  schedulingStore.clearUtilizationData()
 }
 
 // ===== 产品筛选 =====
@@ -864,6 +953,23 @@ const resourceGanttData = computed(() => {
   return { data: filteredData, links: rawData.links || [] }
 })
 
+// 与资源甘特一致：仅统计当前筛选下会出现的资源行（无筛选时为 []，避免后端 resource_ids 为空返回全量）
+const utilizationFetchResourceIds = computed(() => {
+  const data = resourceGanttData.value?.data || []
+  const ids = []
+  for (const item of data) {
+    if (item.parent && item.parent !== 0) continue
+    const raw = item.id
+    if (typeof raw === 'string' && raw.startsWith('resource_')) {
+      const n = parseInt(raw.slice('resource_'.length), 10)
+      if (!Number.isNaN(n)) ids.push(n)
+    } else if (typeof raw === 'number' && Number.isFinite(raw)) {
+      ids.push(raw)
+    }
+  }
+  return ids
+})
+
 // 产品甘特图数据 - 根据选择的产品过滤
 const productGanttData = computed(() => {
   const rawData = schedulingStore.productGanttData
@@ -946,14 +1052,13 @@ const productGanttData = computed(() => {
   return { data: filteredData, links: rawData.links || [] }
 })
 
-// 从资源甘特图数据中提取资源列表并生成利用率数据
+// 利用率：与资源甘特同一资源集合；无筛选时不下发 resource_ids 会得到全量，故这里按 utilizationFetchResourceIds 过滤并置空
 const utilizationData = computed(() => {
-  // 优先使用 store 中的数据
-  if (schedulingStore.utilizationData && schedulingStore.utilizationData.length > 0) {
-    return schedulingStore.utilizationData
-  }
-  // 不再用前端固定 8 小时兜底生成（避免与后端/启发式口径不一致）
-  return []
+  const allowed = utilizationFetchResourceIds.value
+  if (allowed.length === 0) return []
+  const idSet = new Set(allowed)
+  const raw = schedulingStore.utilizationData || []
+  return raw.filter((row) => idSet.has(row.resource_id))
 })
 
 const resourceCount = computed(() => {
@@ -1019,7 +1124,15 @@ const loadProducts = async () => {
   }
 }
 
-const loadGanttData = async () => {
+const loadGanttData = async (options = {}) => {
+  const { showValidationWarning = false } = options
+  const err = getDsFilterValidationError()
+  if (err) {
+    clearDetailedPlanChartData()
+    if (showValidationWarning) ElMessage.warning(err)
+    return
+  }
+
   const [startDate, endDate] = dateRange.value || []
   const locParams = buildGanttLocationParams()
 
@@ -1031,7 +1144,18 @@ const loadGanttData = async () => {
   }
   
   if (selectedCharts.value.includes('utilization')) {
-    await schedulingStore.fetchUtilizationData(selectedResources.value, startDate, endDate, currentZoom.value)
+    const uIds = utilizationFetchResourceIds.value
+    if (uIds.length === 0) {
+      schedulingStore.clearUtilizationData()
+    } else {
+      await schedulingStore.fetchUtilizationData(
+        uIds,
+        startDate,
+        endDate,
+        currentZoom.value,
+        buildGanttLocationParams()
+      )
+    }
   }
 }
 
@@ -1043,9 +1167,11 @@ const handleProductChange = () => {
   loadGanttData()
 }
 
-const handleRefresh = () => {
-  loadGanttData()
-  ElMessage.success(t('dsView.dataRefreshed'))
+const handleRefresh = async () => {
+  await loadGanttData({ showValidationWarning: true })
+  if (!getDsFilterValidationError()) {
+    ElMessage.success(t('dsView.dataRefreshed'))
+  }
 }
 
 const handleAlertCommand = (command) => {
@@ -1080,11 +1206,12 @@ const handleStrategySave = () => {
 }
 
 const handleHeuristicExecute = async () => {
-  if (selectedResources.value.length === 0) {
-    ElMessage.warning(t('dsView.selectResourcesFirst'))
+  const filterErr = getDsFilterValidationError()
+  if (filterErr) {
+    ElMessage.warning(filterErr)
     return
   }
-  
+
   autoPlanning.value = true
   try {
     const [startDate, endDate] = dateRange.value || []
@@ -1124,6 +1251,11 @@ const handleHeuristicExecute = async () => {
 }
 
 const handleOptimizerExecute = async () => {
+  const filterErr = getDsFilterValidationError()
+  if (filterErr) {
+    ElMessage.warning(filterErr)
+    return
+  }
   autoPlanning.value = true
   try {
     const config = {
@@ -1347,15 +1479,8 @@ const handleTaskClicked = (task) => {
 }
 
 // ===== 监听图表选择变化 =====
-watch(selectedCharts, async (newVal) => {
-  if (newVal.includes('product') && !schedulingStore.productGanttData?.data?.length) {
-    const [startDate, endDate] = dateRange.value || []
-    await schedulingStore.fetchProductGanttData(startDate, endDate, buildGanttLocationParams())
-  }
-  if (newVal.includes('utilization') && !schedulingStore.utilizationData?.length) {
-    const [startDate, endDate] = dateRange.value || []
-    await schedulingStore.fetchUtilizationData(selectedResources.value, startDate, endDate, currentZoom.value)
-  }
+watch(selectedCharts, async () => {
+  await loadGanttData()
 })
 
 // ===== 监听日期范围变化 =====
@@ -1363,15 +1488,37 @@ watch(dateRange, async () => {
   await loadGanttData()
 })
 
-watch(filterLocation, () => {
-  loadGanttData()
-})
+watch(
+  filterLocation,
+  async () => {
+    if (suppressFilterDrivenReload.value) return
+    await nextTick()
+    const allowed = new Set(filteredResourceOptions.value.map((r) => r.id))
+    selectedResources.value = selectedResources.value.filter((id) => allowed.has(id))
+    loadGanttData()
+  },
+  { deep: true }
+)
 
 // ===== 监听缩放级别变化，重新加载利用率数据 =====
 watch(currentZoom, async () => {
-  if (selectedCharts.value.includes('utilization')) {
-    const [startDate, endDate] = dateRange.value || []
-    await schedulingStore.fetchUtilizationData(selectedResources.value, startDate, endDate, currentZoom.value)
+  if (!selectedCharts.value.includes('utilization')) return
+  if (getDsFilterValidationError()) {
+    schedulingStore.clearUtilizationData()
+    return
+  }
+  const [startDate, endDate] = dateRange.value || []
+  const uIds = utilizationFetchResourceIds.value
+  if (uIds.length === 0) {
+    schedulingStore.clearUtilizationData()
+  } else {
+    await schedulingStore.fetchUtilizationData(
+      uIds,
+      startDate,
+      endDate,
+      currentZoom.value,
+      buildGanttLocationParams()
+    )
   }
 })
 
@@ -1399,13 +1546,25 @@ watch(
 
 // ===== 初始化 =====
 onMounted(async () => {
-  await Promise.all([
-    loadResources(),
-    loadProducts(),
-    loadLocationMaster(),
-    loadGanttData()
-  ])
-  
+  await Promise.all([loadResources(), loadProducts(), loadLocationMaster()])
+
+  suppressFilterDrivenReload.value = true
+  try {
+    if (filterLocationCodesNorm.value.length === 0 && locationMasterOptions.value.length > 0) {
+      filterLocation.value = locationMasterOptions.value.map((loc) => loc.code)
+    }
+
+    await nextTick()
+
+    if (selectedResources.value.length === 0 && filteredResourceOptions.value.length > 0) {
+      selectedResources.value = filteredResourceOptions.value.map((r) => r.id)
+    }
+  } finally {
+    suppressFilterDrivenReload.value = false
+  }
+
+  await loadGanttData()
+
   // 初始化时同步筛选条件到共享store
   dsFiltersStore.setSelectedResources(selectedResources.value)
   dsFiltersStore.setSelectedProducts(selectedProducts.value)

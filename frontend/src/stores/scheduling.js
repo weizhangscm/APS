@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { schedulingApi } from '@/api'
+import { formatDisplayDateTime } from '@/utils/displayDateTime'
 
 export const useSchedulingStore = defineStore('scheduling', () => {
   // State
@@ -47,10 +48,10 @@ export const useSchedulingStore = defineStore('scheduling', () => {
   }
 
   // 获取资源利用率数据
-  async function fetchUtilizationData(resourceIds = [], startDate = null, endDate = null, zoomLevel = 1) {
+  async function fetchUtilizationData(resourceIds = [], startDate = null, endDate = null, zoomLevel = 1, locationParams = {}) {
     loading.value = true
     try {
-      const response = await schedulingApi.getUtilizationData(resourceIds, startDate, endDate, zoomLevel)
+      const response = await schedulingApi.getUtilizationData(resourceIds, startDate, endDate, zoomLevel, locationParams)
       // 后端返回 {"data": [...]} 格式，提取 data 数组
       utilizationData.value = response.data || []
     } catch (error) {
@@ -130,7 +131,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
         }],
         scheduled_orders: result.success ? 1 : 0,
         scheduled_operations: 1,
-        timestamp: new Date().toLocaleString()
+        timestamp: formatDisplayDateTime(new Date())
       }
       return result
     } catch (error) {
@@ -148,7 +149,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
         }],
         scheduled_orders: 0,
         scheduled_operations: 1,
-        timestamp: new Date().toLocaleString()
+        timestamp: formatDisplayDateTime(new Date())
       }
       throw error
     }
@@ -182,8 +183,13 @@ export const useSchedulingStore = defineStore('scheduling', () => {
       if (options.dueDateEnd) params.due_date_end = options.dueDateEnd
       if (options.scheduleDateStart) params.schedule_date_start = options.scheduleDateStart
       if (options.scheduleDateEnd) params.schedule_date_end = options.scheduleDateEnd
-      if (options.productLocation) params.product_location = options.productLocation
-      if (options.resourceLocation) params.resource_location = options.resourceLocation
+      if (options.productLocations?.length) {
+        params.product_locations = options.productLocations.join(',')
+        params.resource_locations = (options.resourceLocations ?? options.productLocations).join(',')
+      } else {
+        if (options.productLocation) params.product_location = options.productLocation
+        if (options.resourceLocation) params.resource_location = options.resourceLocation
+      }
       if (options.resourceIds?.length) params.resource_ids = options.resourceIds.join(',')
       kpiData.value = await schedulingApi.getKPI(params)
     } catch (error) {
@@ -238,7 +244,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
         details: result.details || [],
         scheduled_orders: result.scheduled_orders,
         scheduled_operations: result.scheduled_operations,
-        timestamp: new Date().toLocaleString()
+        timestamp: formatDisplayDateTime(new Date())
       }
       planLogSetThisRun = true
       await fetchGanttData(currentViewType.value)
@@ -251,7 +257,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
           success: false,
           message: error?.response?.data?.message || error?.message || '请求失败',
           details: [],
-          timestamp: new Date().toLocaleString()
+          timestamp: formatDisplayDateTime(new Date())
         }
       }
       throw error
@@ -310,6 +316,10 @@ export const useSchedulingStore = defineStore('scheduling', () => {
     scheduleRefreshTrigger.value = Date.now()
   }
 
+  function clearUtilizationData() {
+    utilizationData.value = []
+  }
+
   // 获取缓存状态
   async function getCacheStatus() {
     try {
@@ -339,6 +349,7 @@ export const useSchedulingStore = defineStore('scheduling', () => {
     fetchGanttData,
     fetchProductGanttData,
     fetchUtilizationData,
+    clearUtilizationData,
     runScheduling,
     clearScheduling,
     rescheduleOperation,

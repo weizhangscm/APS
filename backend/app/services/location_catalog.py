@@ -1,5 +1,5 @@
 """位置主数据校验：所有业务 location 字段须为 locations 表中的 code。"""
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
@@ -15,6 +15,27 @@ def normalize_location_code(code: Optional[str]) -> Optional[str]:
         return None
     s = str(code).strip()
     return s or None
+
+
+def parse_location_filter_codes(
+    multi_csv: Optional[str],
+    single: Optional[str] = None,
+) -> Optional[List[str]]:
+    """解析查询参数中的位置代码列表：优先逗号分隔的 multi_csv，否则回退 single。无有效代码时返回 None。"""
+    s = ""
+    if multi_csv and str(multi_csv).strip():
+        s = str(multi_csv).strip()
+    elif single and str(single).strip():
+        s = str(single).strip()
+    if not s:
+        return None
+    out: List[str] = []
+    for part in s.split(","):
+        n = normalize_location_code(part.strip())
+        if n:
+            out.append(n)
+    out = list(dict.fromkeys(out))
+    return out if out else None
 
 
 def require_location_code(db: Session, code: Optional[str], field_label: str = "位置") -> str:

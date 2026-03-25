@@ -12,12 +12,12 @@
         <div class="time-axis">
           <div 
             v-for="day in timeAxis" 
-            :key="day.date" 
+            :key="day.timestamp" 
             class="time-slot"
             :class="{ 'is-hour-view': props.zoomLevel === 0 }"
             :style="{ width: `${dayWidth}px` }"
           >
-            <div class="day-label">{{ day.date }}</div>
+            <div class="day-label">{{ formatDisplayDate(day.date) }}</div>
             <div class="hour-labels">
               <span v-for="hour in hourLabels" :key="hour">{{ hour }}</span>
             </div>
@@ -37,8 +37,16 @@
         >
           <div class="cell col-name">{{ resource.resource_name }}</div>
           <div class="cell col-capacity">
-            <div class="capacity-scale">
-              <span v-for="(tick, i) in getCapacityTicks(resource.capacity)" :key="i">{{ formatCapacityTick(tick) }}</span>
+            <div class="capacity-scale" aria-hidden="true">
+              <span class="scale-tick">130%</span>
+              <div class="scale-gap" style="flex-grow: 30"></div>
+              <span class="scale-tick">100%</span>
+              <div class="scale-gap" style="flex-grow: 20"></div>
+              <span class="scale-tick">80%</span>
+              <div class="scale-gap" style="flex-grow: 30"></div>
+              <span class="scale-tick">50%</span>
+              <div class="scale-gap" style="flex-grow: 50"></div>
+              <span class="scale-tick">0%</span>
             </div>
           </div>
         </div>
@@ -75,14 +83,8 @@
                     'normal': slot.utilization > 0 && slot.utilization <= 1,
                     'empty': slot.utilization === 0 
                   }"
-                  :style="getBarHeightStyle(slot.utilization, resource.capacity)"
-                >
-                  <div 
-                    v-if="slot.utilization > 1"
-                    class="overload-indicator"
-                    :style="getOverloadHeightStyle(slot.utilization, resource.capacity)"
-                  ></div>
-                </div>
+                  :style="getBarHeightStyle(slot.utilization)"
+                ></div>
               </div>
             </div>
           </div>
@@ -95,6 +97,7 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18nStore } from '@/stores/i18n'
+import { formatDisplayDate, formatDisplayHourOfDay } from '@/utils/displayDateTime'
 
 const i18nStore = useI18nStore()
 const t = (key) => i18nStore.t(key)
@@ -159,23 +162,24 @@ const dayWidth = computed(() => {
   return widthMap[props.zoomLevel] || 240
 })
 
-// 根据缩放级别生成小时标签
-const hourLabels = computed(() => {
+const hourTickHours = computed(() => {
   switch (props.zoomLevel) {
-    case 0: // 小时视图 - 显示每小时刻度
-      return Array.from({ length: 24 }, (_, i) => `${String(i).padStart(2, '0')}:00`)
-    case 1: // 4小时视图 - 显示每4小时
-      return ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']
-    case 2: // 天视图 - 显示每8小时
-      return ['00:00', '08:00', '16:00']
-    case 3: // 周视图 - 只显示日期
-      return ['00:00', '12:00']
-    case 4: // 月视图 - 只显示日期
-      return ['00:00']
+    case 0:
+      return Array.from({ length: 24 }, (_, i) => i)
+    case 1:
+      return [0, 4, 8, 12, 16, 20]
+    case 2:
+      return [0, 8, 16]
+    case 3:
+      return [0, 12]
+    case 4:
+      return [0]
     default:
-      return ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00']
+      return [0, 4, 8, 12, 16, 20]
   }
 })
+
+const hourLabels = computed(() => hourTickHours.value.map((h) => formatDisplayHourOfDay(h)))
 
 // 生成时间轴
 const timeAxis = computed(() => {
@@ -190,7 +194,7 @@ const timeAxis = computed(() => {
   const current = new Date(start)
   while (current <= end) {
     days.push({
-      date: `${current.getFullYear()}.${String(current.getMonth() + 1).padStart(2, '0')}.${String(current.getDate()).padStart(2, '0')}`,
+      date: new Date(current),
       weekday: weekdays[current.getDay()],
       timestamp: current.getTime()
     })
@@ -252,33 +256,13 @@ const getSlotWidth = (startStr, endStr) => {
   return Math.max(diffDays * dayWidth.value, 2)
 }
 
-// 左侧产能刻度：0 在底、产能(小时)在顶，与右侧绿色条高度对应（条高 = 占用/产能）
-const getCapacityTicks = (capacity) => {
-  const cap = Number(capacity)
-  const maxVal = (cap > 0 && isFinite(cap)) ? cap : 8
-  const step = maxVal / 3
-  return [
-    Math.round(maxVal * 100) / 100,
-    Math.round(step * 2 * 100) / 100,
-    Math.round(step * 100) / 100,
-    0
-  ]
-}
+// 纵轴 0%～130% 线性刻度；柱高 = utilization / 1.3 × 行高，与左侧百分比刻度对齐
+const UTILIZATION_SCALE_MAX = 1.3
 
-const formatCapacityTick = (tick) => {
-  return Number(tick) === Math.round(tick) ? String(Math.round(tick)) : Number(tick).toFixed(1)
-}
-
-// 绿色条高度：占行高的 utilization（0~1 对应 0~产能），与左侧刻度一致
-const getBarHeightStyle = (utilization, capacity) => {
+const getBarHeightStyle = (utilization) => {
   if (utilization <= 0) return { height: '2px' }
-  const pct = Math.min(utilization * 100, 100)
-  return { height: pct + '%' }
-}
-
-const getOverloadHeightStyle = (utilization) => {
-  if (utilization <= 1) return { height: '0%' }
-  return { height: ((utilization - 1) * 100) + '%' }
+  const u = Math.min(Math.max(utilization, 0), UTILIZATION_SCALE_MAX)
+  return { height: `${(u / UTILIZATION_SCALE_MAX) * 100}%` }
 }
 
 // 监听数据变化
@@ -431,16 +415,34 @@ onMounted(() => {
     width: 80px;
     min-width: 80px;
     justify-content: center;
+    padding-top: 0;
+    padding-bottom: 0;
+    display: flex;
+    align-items: stretch;
   }
+
 }
 
 .capacity-scale {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
   font-size: 11px;
   color: #909399;
-  line-height: 1.4;
+  line-height: 1.2;
   text-align: center;
+}
+
+.scale-tick {
+  flex-shrink: 0;
+}
+
+.scale-gap {
+  flex-basis: 0;
+  flex-shrink: 1;
+  min-height: 0;
 }
 
 .empty-row {
@@ -541,12 +543,4 @@ onMounted(() => {
   }
 }
 
-.overload-indicator {
-  position: absolute;
-  bottom: 100%;
-  left: 0;
-  right: 0;
-  background: rgba(245, 34, 45, 0.6);
-  border-radius: 2px 2px 0 0;
-}
 </style>

@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { messages, defaultLocale } from '@/i18n'
+import { useUserDisplayPrefsStore } from '@/stores/userDisplayPrefs'
 
 function t(key) {
   const loc = localStorage.getItem('locale') || defaultLocale
@@ -137,6 +138,12 @@ const routes = [
     name: 'DataManagement',
     component: () => import('@/views/DataManagement.vue'),
     meta: { requiresAuth: true, requiresAdmin: true }
+  },
+  {
+    path: '/profile',
+    name: 'Profile',
+    component: () => import('@/views/ProfileView.vue'),
+    meta: { requiresAuth: true }
   }
 ]
 
@@ -172,6 +179,10 @@ router.beforeEach((to, from, next) => {
   } else {
     next()
   }
+})
+
+router.afterEach(() => {
+  useUserDisplayPrefsStore().hydrateFromLocalStorage()
 })
 
 export default router

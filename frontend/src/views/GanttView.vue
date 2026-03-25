@@ -124,6 +124,7 @@
             <el-date-picker 
               v-model="adjustForm.newStart" 
               type="datetime"
+              :format="dateTimePickerDisplayFormat"
               placeholder="选择新的开始时间"
               style="width: 100%"
             />
@@ -150,8 +151,10 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useSchedulingStore } from '@/stores/scheduling'
 import GanttChart from '@/components/GanttChart.vue'
+import { elementDateTimePickerDisplayFormat } from '@/utils/displayDateTime'
 
 const schedulingStore = useSchedulingStore()
+const dateTimePickerDisplayFormat = computed(() => elementDateTimePickerDisplayFormat())
 const ganttRef = ref(null)
 
 const loading = computed(() => schedulingStore.loading)

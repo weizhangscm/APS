@@ -1,5 +1,7 @@
 fastapi==0.109.0
 uvicorn[standard]==0.27.0
+# IANA time zones for zoneinfo on Windows (and consistent tz data everywhere)
+tzdata>=2024.1
 sqlalchemy==2.0.36
 pydantic==2.5.3
 python-dateutil==2.8.2

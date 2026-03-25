@@ -14,6 +14,10 @@ class User(Base):
     email = Column(String(100), unique=True, index=True, nullable=True)
     hashed_password = Column(String(255), nullable=False)
     full_name = Column(String(100), nullable=True)
+    department = Column(String(100), nullable=True)
+    date_format = Column(String(40), nullable=True)
+    time_format = Column(String(10), nullable=True)  # "24h" | "12h"
+    user_timezone = Column(String(80), nullable=True)
     is_active = Column(Boolean, default=True)
     is_admin = Column(Boolean, default=False)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -82,6 +86,8 @@ class Resource(Base):
     location = Column(String(50), nullable=True)
     operating_start = Column(String(30), nullable=True)
     operating_end = Column(String(30), nullable=True)
+    operating_rest_start = Column(String(30), nullable=True)
+    operating_rest_end = Column(String(30), nullable=True)
     operating_break = Column(String(30), nullable=True)
     utilization_percent = Column(Float, nullable=True)
     production_hours = Column(Float, nullable=True)
@@ -110,7 +116,9 @@ class Shift(Base):
     shift_name = Column(String(100), nullable=False)
     start_time = Column(String(10), nullable=False)  # "HH:mm"
     end_time = Column(String(10), nullable=False)   # "HH:mm"
-    break_time = Column(Integer, default=0)        # 休息时间(分钟)
+    break_start_time = Column(String(10), nullable=True)
+    break_end_time = Column(String(10), nullable=True)
+    break_time = Column(Integer, default=0)        # 休息时间(分钟)，由休息起止自动计算
     location = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

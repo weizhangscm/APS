@@ -41,8 +41,39 @@ export default {
     admin: '管理员',
     regularUser: '普通用户',
     confirmLogout: '确定要退出登录吗？',
-    logoutSuccess: '已退出登录',
-    profileComingSoon: '个人信息功能开发中'
+    logoutSuccess: '已退出登录'
+  },
+
+  profilePage: {
+    title: '个人信息',
+    username: '用户名称',
+    usernameHint: '当前登录账号，不可修改',
+    fullName: '姓名',
+    email: '电子邮件',
+    department: '部门',
+    dateFormat: '日期格式',
+    timeFormat: '时间格式',
+    timezone: '时区',
+    save: '保存',
+    loadFailed: '加载个人信息失败',
+    saveSuccess: '保存成功',
+    saveFailed: '保存失败',
+    emailInvalid: '请输入有效的电子邮件地址',
+    selectDateFormatPlaceholder: '请选择日期显示格式',
+    selectTimeFormatPlaceholder: '请选择时间显示格式（12/24 小时）',
+    selectTimezonePlaceholder: '请选择时区',
+    dateFormats: {
+      'YYYY-MM-DD': 'YYYY-MM-DD（2026-03-24）',
+      'MM/DD/YYYY': 'MM/DD/YYYY（03/24/2026）',
+      'DD/MM/YYYY': 'DD/MM/YYYY（24/03/2026）',
+      'DD.MM.YYYY': 'DD.MM.YYYY（24.03.2026）',
+      'YYYY/MM/DD': 'YYYY/MM/DD（2026/03/24）',
+      'YYYY年MM月DD日': 'YYYY年MM月DD日（2026年03月24日）'
+    },
+    timeFormats: {
+      '24h': '24 小时制（14:30）',
+      '12h': '12 小时制（下午 2:30）'
+    }
   },
 
   dataExcel: {
@@ -163,6 +194,9 @@ export default {
     allLocations: '全部位置',
     resource: '资源',
     allResources: '全部资源',
+    selectLocations: '选择位置',
+    selectResources: '选择资源',
+    noResourcesAtLocation: '该位置下无资源',
     shortcuts: {
       thisWeek: '本周',
       thisMonth: '本月',
@@ -184,7 +218,10 @@ export default {
     unitPcs: '个',
     unitHours: '小时',
     usedCapacity: '已用产能',
-    totalCapacityLegend: '总产能'
+    totalCapacityLegend: '总产能',
+    selectDateRangeRequired: '请选择日期区间',
+    selectLocationRequired: '请至少选择一个位置',
+    selectResourcesRequired: '请至少选择一个资源'
   },
 
   // 详细调度视图
@@ -192,6 +229,8 @@ export default {
     displayRange: '显示区间',
     location: '位置',
     allLocations: '全部位置',
+    selectLocations: '选择位置',
+    noResourcesAtLocation: '该位置下无资源',
     required: '必填',
     startDate: '开始日期',
     endDate: '结束日期',
@@ -232,6 +271,9 @@ export default {
     resourceUtilizationChart: '资源利用率',
     selectResourcesFirst: '请先选择要排程的资源',
     selectResourcesOrProducts: '请先选择资源或产品',
+    selectDisplayRangeRequired: '请选择显示区间',
+    selectLocationRequired: '请至少选择一个位置',
+    selectResourcesRequired: '请至少选择一个资源',
     finiteCapacityHint: '在资源的现有排程中搜索足够大的空闲时间段（有限产能）',
     internalRelationsHint: '不考虑：只排选中资源上的工序；始终考虑：自动调整订单内其他工序以维护时间关系',
     orderNumber: '订单号',
@@ -423,11 +465,14 @@ export default {
     endDate: '结束日期',
     resource: '资源',
     selectResource: '选择资源',
+    selectResources: '选择资源',
     type: '类型',
     product: '产品',
     location: '位置',
     locationFromProductHint: '与所选产品主数据位置一致，保存订单时由后端写入',
     allLocations: '全部位置',
+    selectLocations: '选择位置',
+    noResourcesAtLocation: '该位置下无资源',
     adjustFilters: '调整过滤器',
     adjustFiltersHint: '勾选要在筛选区显示的项；取消勾选的筛选项将被隐藏，其当前条件会清空。',
     quantity: '数量',
@@ -504,7 +549,10 @@ export default {
     shiftName: '班次名称',
     startTime: '开始时间',
     endTime: '结束时间',
+    breakStart: '休息开始',
+    breakEnd: '休息结束',
     breakTime: '休息时间(分钟)',
+    breakTimeAutoHint: '填写休息开始与结束后自动计算',
     location: '位置',
     selectLocation: '请选择位置',
     selectResource: '请选择资源',
@@ -589,7 +637,10 @@ export default {
     close: '关闭',
     start: '开始',
     end: '结束',
+    restStart: '休息开始',
+    restEnd: '休息结束',
     breakPeriod: '休息期间',
+    breakPeriodAutoHint: '由休息开始、结束自动计算',
     utilizationPercent: '利用率百分比',
     capacity: '产能',
     workCenterDesc: '工作中心描述',
@@ -726,7 +777,7 @@ export default {
     applyAdjustment: '应用调整',
     resourceName: '资源名称',
     durationH: '时长(H)',
-    capacityHeader: '产能',
+    capacityHeader: '利用率',
     noData: '暂无数据',
     unitPcs: '个',
     unitHours: '小时',

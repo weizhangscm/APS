@@ -52,7 +52,8 @@ export const authApi = {
     params.append('old_password', oldPassword)
     params.append('new_password', newPassword)
     return api.post('/auth/change-password', null, { params })
-  }
+  },
+  updateProfile: (data) => api.patch('/auth/profile', data)
 }
 
 // Master Data APIs
@@ -78,6 +79,8 @@ export const masterDataApi = {
     if (arg != null && typeof arg === 'object') {
       if (arg.work_center_id != null) params.work_center_id = arg.work_center_id
       if (arg.location) params.location = arg.location
+      if (arg.skip != null) params.skip = arg.skip
+      if (arg.limit != null) params.limit = arg.limit
     } else if (arg != null) {
       params.work_center_id = arg
     }
@@ -176,12 +179,11 @@ export const schedulingApi = {
   // 获取缓存状态 - 检查是否有未保存的排程
   getCacheStatus: () => api.get('/scheduling/cache-status'),
   // 新增：获取资源利用率数据
-  getUtilizationData: (resourceIds = [], startDate = null, endDate = null, zoomLevel = 1) => {
-    const params = {}
+  getUtilizationData: (resourceIds = [], startDate = null, endDate = null, zoomLevel = 1, extra = {}) => {
+    const params = { ...extra, zoom_level: zoomLevel }
     if (resourceIds && resourceIds.length > 0) params.resource_ids = resourceIds.join(',')
     if (startDate) params.start_date = startDate
     if (endDate) params.end_date = endDate
-    params.zoom_level = zoomLevel  // 0=小时, 1=4小时, 2=天, 3=周, 4=月
     return api.get('/scheduling/utilization', { params })
   },
   // 新增：联动调整工序（支持策略）

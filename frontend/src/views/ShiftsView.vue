@@ -27,8 +27,18 @@
         </el-table-column>
         <el-table-column prop="shift_code" :label="t('shifts.shiftCode')" min-width="100" />
         <el-table-column prop="shift_name" :label="t('shifts.shiftName')" min-width="120" />
-        <el-table-column prop="start_time" :label="t('shifts.startTime')" min-width="100" align="center" />
-        <el-table-column prop="end_time" :label="t('shifts.endTime')" min-width="100" align="center" />
+        <el-table-column prop="start_time" :label="t('shifts.startTime')" min-width="100" align="center">
+          <template #default="{ row }">{{ formatDisplayTimeFromHm(row.start_time) }}</template>
+        </el-table-column>
+        <el-table-column prop="end_time" :label="t('shifts.endTime')" min-width="100" align="center">
+          <template #default="{ row }">{{ formatDisplayTimeFromHm(row.end_time) }}</template>
+        </el-table-column>
+        <el-table-column :label="t('shifts.breakStart')" min-width="100" align="center">
+          <template #default="{ row }">{{ row.break_start_time ? formatDisplayTimeFromHm(row.break_start_time) : '—' }}</template>
+        </el-table-column>
+        <el-table-column :label="t('shifts.breakEnd')" min-width="100" align="center">
+          <template #default="{ row }">{{ row.break_end_time ? formatDisplayTimeFromHm(row.break_end_time) : '—' }}</template>
+        </el-table-column>
         <el-table-column prop="break_time" :label="t('shifts.breakTime')" min-width="120" align="center" />
         <el-table-column prop="location" :label="t('shifts.location')" min-width="100" align="center" />
         <el-table-column :label="t('shifts.actions')" width="180" align="center" fixed="right">
@@ -73,7 +83,7 @@
         <el-form-item :label="t('shifts.startTime')" prop="start_time">
           <el-time-picker 
             v-model="form.start_time" 
-            format="HH:mm"
+            :format="timePickerDisplayFormat"
             value-format="HH:mm"
             :placeholder="t('shifts.selectStartTime')"
             style="width: 100%"
@@ -82,20 +92,42 @@
         <el-form-item :label="t('shifts.endTime')" prop="end_time">
           <el-time-picker 
             v-model="form.end_time" 
-            format="HH:mm"
+            :format="timePickerDisplayFormat"
             value-format="HH:mm"
             :placeholder="t('shifts.selectEndTime')"
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item :label="t('shifts.breakTime')" prop="break_time">
-          <el-input-number 
-            v-model="form.break_time" 
-            :min="0" 
-            :max="480"
-            :step="15"
+        <el-form-item :label="t('shifts.breakStart')" prop="break_start_time">
+          <el-time-picker
+            v-model="form.break_start_time"
+            :format="timePickerDisplayFormat"
+            value-format="HH:mm"
+            clearable
+            :placeholder="t('shifts.selectStartTime')"
             style="width: 100%"
           />
+        </el-form-item>
+        <el-form-item :label="t('shifts.breakEnd')" prop="break_end_time">
+          <el-time-picker
+            v-model="form.break_end_time"
+            :format="timePickerDisplayFormat"
+            value-format="HH:mm"
+            clearable
+            :placeholder="t('shifts.selectEndTime')"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item :label="t('shifts.breakTime')" prop="break_time">
+          <el-input-number
+            v-model="form.break_time"
+            :min="0"
+            :max="480"
+            :step="15"
+            :disabled="!!(form.break_start_time && form.break_end_time)"
+            style="width: 100%"
+          />
+          <div class="form-tip">{{ t('shifts.breakTimeAutoHint') }}</div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -136,14 +168,25 @@
 
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
+
+function hmToMinutes(hm) {
+  if (!hm || typeof hm !== 'string') return 0
+  const [h, m] = hm.split(':').map((x) => parseInt(x, 10) || 0)
+  return h * 60 + m
+}
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Clock, Plus } from '@element-plus/icons-vue'
 import { masterDataApi } from '@/api'
 import { useI18nStore } from '@/stores/i18n'
 import DataExcelToolbar from '@/components/DataExcelToolbar.vue'
+import {
+  elementTimePickerDisplayFormat,
+  formatDisplayTimeFromHm
+} from '@/utils/displayDateTime'
 
 const i18nStore = useI18nStore()
 const t = (key) => i18nStore.t(key)
+const timePickerDisplayFormat = computed(() => elementTimePickerDisplayFormat())
 
 const shifts = ref([])
 const resources = ref([])
@@ -164,6 +207,8 @@ const form = ref({
   shift_name: '',
   start_time: '',
   end_time: '',
+  break_start_time: '',
+  break_end_time: '',
   break_time: 0,
   location: ''
 })
@@ -227,6 +272,8 @@ const handleAdd = () => {
     shift_name: '',
     start_time: '08:00',
     end_time: '17:00',
+    break_start_time: '',
+    break_end_time: '',
     break_time: 60,
     location: locations.value[0]?.code || ''
   }
@@ -298,6 +345,18 @@ watch(
   () => form.value.resource_id,
   () => {
     if (dialogVisible.value) onShiftResourceChange()
+  }
+)
+
+watch(
+  [() => form.value.break_start_time, () => form.value.break_end_time],
+  ([bs, be]) => {
+    if (bs && be) {
+      let em = hmToMinutes(be)
+      const sm = hmToMinutes(bs)
+      if (em <= sm) em += 24 * 60
+      form.value.break_time = em - sm
+    }
   }
 )
 

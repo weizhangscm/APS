@@ -8,6 +8,7 @@ import 'dhtmlx-gantt/codebase/dhtmlxgantt.css'
 
 import App from './App.vue'
 import router from './router'
+import { useUserDisplayPrefsStore } from './stores/userDisplayPrefs'
 
 import './styles/main.scss'
 
@@ -23,3 +24,4 @@ app.use(router)
 app.use(ElementPlus, { locale: zhCn })
 
 app.mount('#app')
+useUserDisplayPrefsStore().hydrateFromLocalStorage()

@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..database import get_db
 from .. import models
+from ..services.rest_breaks import break_minutes_between, operating_break_duration_str
 from .auth import require_admin, require_auth
 from .orders import _allocate_order_number, replace_order_operations_from_routing
 
@@ -136,6 +137,8 @@ FIELD_SPECS: Dict[str, List[Tuple[str, str, str, Tuple[str, ...]]]] = {
         ("location", "位置", "Location", ()),
         ("operating_start", "开始", "Start", ("start_time", "start")),
         ("operating_end", "结束", "End", ("end_time", "end")),
+        ("operating_rest_start", "休息开始", "Rest start", ("rest_start",)),
+        ("operating_rest_end", "休息结束", "Rest end", ("rest_end",)),
         ("operating_break", "休息时段", "Break period", ("break_time", "break_period")),
         ("utilization_percent", "利用效率(%)", "Utilization %", ("utilization",)),
         ("production_hours", "生产时间(小时)", "Production hours (h)", ()),
@@ -159,6 +162,8 @@ FIELD_SPECS: Dict[str, List[Tuple[str, str, str, Tuple[str, ...]]]] = {
         ("shift_name", "班次名称", "Shift name", ()),
         ("start_time", "开始时间", "Start time", ()),
         ("end_time", "结束时间", "End time", ()),
+        ("break_start_time", "休息开始", "Rest start", ("rest_start",)),
+        ("break_end_time", "休息结束", "Rest end", ("rest_end",)),
         ("break_time", "休息(分钟)", "Break (min)", ("break",)),
         ("location", "位置", "Location", ()),
     ],
@@ -541,6 +546,11 @@ def _import_resources(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tu
 
             desc = _sopt("description")
             existing = db.query(models.Resource).filter(models.Resource.code == code).first()
+            ors = _sopt("operating_rest_start")
+            ore = _sopt("operating_rest_end")
+            ob = _sopt("operating_break")
+            if ors and ore:
+                ob = operating_break_duration_str(break_minutes_between(ors, ore))
             payload = dict(
                 name=name,
                 work_center_id=wc_id,
@@ -550,7 +560,9 @@ def _import_resources(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tu
                 location=_sopt("location"),
                 operating_start=_sopt("operating_start"),
                 operating_end=_sopt("operating_end"),
-                operating_break=_sopt("operating_break"),
+                operating_rest_start=ors,
+                operating_rest_end=ore,
+                operating_break=ob,
                 utilization_percent=up,
                 production_hours=ph,
                 capacity_value=cv,
@@ -615,7 +627,18 @@ def _import_shifts(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tuple
             rl = str(res.location or "").strip()
             if rl and loc != rl:
                 raise ValueError("班次位置须与资源位置一致")
+
+            def _ss(k: str) -> Optional[str]:
+                v = row.get(k)
+                if v is None or str(v).strip() == "":
+                    return None
+                return str(v).strip()
+
+            bss = _ss("break_start_time")
+            bes = _ss("break_end_time")
             br = _parse_int(row.get("break_time"), 0) or 0
+            if bss and bes:
+                br = break_minutes_between(bss, bes)
             existing = (
                 db.query(models.Shift)
                 .filter(models.Shift.resource_id == res.id, models.Shift.shift_code == sc)
@@ -625,6 +648,8 @@ def _import_shifts(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tuple
                 existing.shift_name = sn
                 existing.start_time = st
                 existing.end_time = et
+                existing.break_start_time = bss
+                existing.break_end_time = bes
                 existing.break_time = br
                 existing.location = loc
             else:
@@ -635,6 +660,8 @@ def _import_shifts(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tuple
                         shift_name=sn,
                         start_time=st,
                         end_time=et,
+                        break_start_time=bss,
+                        break_end_time=bes,
                         break_time=br,
                         location=loc,
                     )

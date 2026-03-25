@@ -12,10 +12,13 @@
       <el-col :xs="24" :md="18">
         <div class="filters-inline">
           <div class="date-range-bar">
-            <span class="date-range-label">{{ t('dashboard.dateRange') }}</span>
+            <span class="date-range-label">
+              {{ t('dashboard.dateRange') }}<span class="required-mark">*</span>
+            </span>
             <el-date-picker
               v-model="dateRange"
               type="daterange"
+              :format="datePickerDisplayFormat"
               :range-separator="t('common.to')"
               :start-placeholder="t('common.startDate')"
               :end-placeholder="t('common.endDate')"
@@ -26,15 +29,30 @@
             />
           </div>
           <div class="location-bar">
-            <span class="date-range-label">{{ t('dashboard.location') }}</span>
+            <span class="date-range-label">
+              {{ t('dashboard.location') }}<span class="required-mark">*</span>
+            </span>
             <el-select
-              v-model="kpiLocation"
-              clearable
+              v-model="kpiLocationCodes"
+              multiple
+              collapse-tags
+              collapse-tags-tooltip
               filterable
-              :placeholder="t('dashboard.allLocations')"
+              :placeholder="t('dashboard.selectLocations')"
               class="location-select"
-              @change="refreshData"
+              @change="onKpiLocationChange"
             >
+              <template #header>
+                <div class="select-header-options">
+                  <el-checkbox
+                    v-model="allKpiLocationsSelected"
+                    :indeterminate="kpiLocationsIndeterminate"
+                    @change="handleSelectAllKpiLocations"
+                  >
+                    {{ t('dashboard.selectLocations') }}
+                  </el-checkbox>
+                </div>
+              </template>
               <el-option
                 v-for="loc in locationOptions"
                 :key="loc.code"
@@ -44,20 +62,33 @@
             </el-select>
           </div>
           <div class="resource-bar">
-            <span class="date-range-label">{{ t('dashboard.resource') }}</span>
+            <span class="date-range-label">
+              {{ t('dashboard.resourceName') }}<span class="required-mark">*</span>
+            </span>
             <el-select
               v-model="kpiResourceIds"
               multiple
               collapse-tags
               collapse-tags-tooltip
               filterable
-              clearable
-              :placeholder="t('dashboard.allResources')"
+              :clearable="false"
+              :placeholder="resourceSelectPlaceholder"
               class="resource-select"
               @change="refreshData"
             >
+              <template #header>
+                <div class="select-header-options">
+                  <el-checkbox
+                    v-model="allKpiResourcesSelected"
+                    :indeterminate="kpiResourcesIndeterminate"
+                    @change="handleSelectAllKpiResources"
+                  >
+                    {{ t('dashboard.selectResources') }}
+                  </el-checkbox>
+                </div>
+              </template>
               <el-option
-                v-for="r in resourceOptions"
+                v-for="r in resourcesForKpiSelect"
                 :key="r.id"
                 :label="r.name"
                 :value="r.id"
@@ -67,7 +98,7 @@
         </div>
       </el-col>
       <el-col :xs="24" :md="6" class="toolbar-actions">
-        <el-button @click="refreshData" :loading="loading">
+        <el-button @click="handleRefreshClick" :loading="loading">
           <el-icon><Refresh /></el-icon>
           {{ t('dashboard.refreshView') }}
         </el-button>
@@ -182,7 +213,8 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
+import { ElMessage } from 'element-plus'
 import { useI18nStore } from '@/stores/i18n'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -197,9 +229,11 @@ import VChart from 'vue-echarts'
 import { useSchedulingStore } from '@/stores/scheduling'
 import { masterDataApi } from '@/api'
 import KPICard from '@/components/KPICard.vue'
+import { elementDatePickerDisplayFormat } from '@/utils/displayDateTime'
 
 const i18nStore = useI18nStore()
 const t = (key) => i18nStore.t(key)
+const datePickerDisplayFormat = computed(() => elementDatePickerDisplayFormat())
 
 use([
   CanvasRenderer,
@@ -261,9 +295,79 @@ function getDefaultDateRange() {
 const dateRange = ref(getDefaultDateRange())
 
 const locationOptions = ref([])
-const kpiLocation = ref('')
+const kpiLocationCodes = ref([])
 const resourceOptions = ref([])
 const kpiResourceIds = ref([])
+
+const normLocationCode = (v) => (v != null && String(v).trim() ? String(v).trim() : '')
+
+const kpiLocationCodesNorm = computed(() =>
+  [...new Set(kpiLocationCodes.value.map(normLocationCode).filter(Boolean))]
+)
+
+/** 必选位置：仅列出所选 location 下的资源（未维护 location 的条目不匹配） */
+const resourcesForKpiSelect = computed(() => {
+  const codes = kpiLocationCodesNorm.value
+  const all = resourceOptions.value
+  if (codes.length === 0) return []
+  const set = new Set(codes)
+  return all.filter((r) => set.has(normLocationCode(r.location)))
+})
+
+const resourceSelectPlaceholder = computed(() => {
+  if (kpiLocationCodesNorm.value.length > 0 && resourcesForKpiSelect.value.length === 0) {
+    return t('dashboard.noResourcesAtLocation')
+  }
+  return t('dashboard.selectResources')
+})
+
+const allKpiLocationsSelected = computed(() => {
+  const options = locationOptions.value
+  if (options.length === 0) return false
+  const selected = new Set(kpiLocationCodes.value)
+  return selected.size === options.length && options.every((loc) => selected.has(loc.code))
+})
+
+const kpiLocationsIndeterminate = computed(() => {
+  const options = locationOptions.value
+  const selected = new Set(kpiLocationCodes.value)
+  const n = options.filter((loc) => selected.has(loc.code)).length
+  return n > 0 && n < options.length
+})
+
+const handleSelectAllKpiLocations = (val) => {
+  if (val) {
+    kpiLocationCodes.value = locationOptions.value.map((loc) => loc.code)
+  } else {
+    kpiLocationCodes.value = []
+  }
+  onKpiLocationChange()
+}
+
+const allKpiResourcesSelected = computed(() => {
+  const options = resourcesForKpiSelect.value
+  return (
+    options.length > 0 &&
+    kpiResourceIds.value.length === options.length &&
+    options.every((r) => kpiResourceIds.value.includes(r.id))
+  )
+})
+
+const kpiResourcesIndeterminate = computed(() => {
+  const options = resourcesForKpiSelect.value
+  const selectedInOptions = options.filter((r) => kpiResourceIds.value.includes(r.id)).length
+  return selectedInOptions > 0 && selectedInOptions < options.length
+})
+
+const handleSelectAllKpiResources = (val) => {
+  if (val) {
+    kpiResourceIds.value = resourcesForKpiSelect.value.map((r) => r.id)
+  } else {
+    const filteredIds = new Set(resourcesForKpiSelect.value.map((r) => r.id))
+    kpiResourceIds.value = kpiResourceIds.value.filter((id) => !filteredIds.has(id))
+  }
+  refreshData()
+}
 
 const locationOptionLabel = (loc) => {
   if (!loc) return ''
@@ -282,7 +386,23 @@ const loadLocationOptions = async () => {
 
 const loadResourceOptions = async () => {
   try {
-    resourceOptions.value = (await masterDataApi.getResources()) || []
+    const pageSize = 2000
+    let skip = 0
+    const all = []
+    const seen = new Set()
+    for (let guard = 0; guard < 50; guard += 1) {
+      const batch = await masterDataApi.getResources({ limit: pageSize, skip })
+      if (!Array.isArray(batch) || batch.length === 0) break
+      for (const r of batch) {
+        if (r && r.id != null && !seen.has(r.id)) {
+          seen.add(r.id)
+          all.push(r)
+        }
+      }
+      if (batch.length < pageSize) break
+      skip += pageSize
+    }
+    resourceOptions.value = all
   } catch (e) {
     console.error('Failed to load resources:', e)
     resourceOptions.value = []
@@ -319,11 +439,34 @@ function onDateRangeChange() {
   refreshData()
 }
 
-const refreshData = async () => {
+async function onKpiLocationChange() {
+  await nextTick()
+  const allowed = new Set(resourcesForKpiSelect.value.map((r) => r.id))
+  kpiResourceIds.value = kpiResourceIds.value.filter((id) => allowed.has(id))
+  refreshData()
+}
+
+function getKpiFilterValidationError() {
+  const [start, end] = dateRange.value || []
+  if (!start || !end) return t('dashboard.selectDateRangeRequired')
+  if (kpiLocationCodesNorm.value.length === 0) return t('dashboard.selectLocationRequired')
+  if (kpiResourceIds.value.length === 0) return t('dashboard.selectResourcesRequired')
+  return null
+}
+
+const refreshData = async (options = {}) => {
+  const { showValidationWarning = false } = options
+  const err = getKpiFilterValidationError()
+  if (err) {
+    schedulingStore.$patch({ kpiData: null })
+    if (showValidationWarning) ElMessage.warning(err)
+    return
+  }
+
   loading.value = true
   try {
     const [start, end] = dateRange.value || []
-    const loc = kpiLocation.value && String(kpiLocation.value).trim()
+    const locCodes = kpiLocationCodesNorm.value
     await schedulingStore.fetchKPIData({
       // 保持订单KPI/平均提前期的原有口径：仍按交期区间过滤（不改功能）
       ...(start && { dueDateStart: start }),
@@ -331,12 +474,19 @@ const refreshData = async () => {
       // 资源利用率/每日产能负荷/资源利用详情：按“日期区间”（排程时间窗口）过滤
       ...(start && { scheduleDateStart: start }),
       ...(end && { scheduleDateEnd: end }),
-      ...(loc
-        ? { productLocation: loc, resourceLocation: loc }
-        : {})
+      productLocations: locCodes,
+      resourceLocations: locCodes,
+      resourceIds: kpiResourceIds.value
     })
   } finally {
     loading.value = false
+  }
+}
+
+async function handleRefreshClick() {
+  await refreshData({ showValidationWarning: true })
+  if (!getKpiFilterValidationError()) {
+    ElMessage.success(t('messages.dataRefreshed'))
   }
 }
 
@@ -486,7 +636,16 @@ const capacityChartOption = computed(() => {
 
 onMounted(async () => {
   await Promise.all([loadLocationOptions(), loadResourceOptions()])
-  refreshData()
+
+  if (kpiLocationCodesNorm.value.length === 0 && locationOptions.value.length > 0) {
+    kpiLocationCodes.value = locationOptions.value.map((loc) => loc.code)
+  }
+  await nextTick()
+  if (kpiResourceIds.value.length === 0 && resourcesForKpiSelect.value.length > 0) {
+    kpiResourceIds.value = resourcesForKpiSelect.value.map((r) => r.id)
+  }
+
+  await refreshData()
 })
 </script>
 
@@ -516,6 +675,19 @@ $m3-on-surface-variant: #444746;
   align-items: center;
   gap: 16px;
   min-width: 0;
+
+  /* 与日期区间、位置、资源共用：防止窄列下中文标签被压成一字一行（看似竖排） */
+  .date-range-label {
+    font-size: 14px;
+    color: $m3-on-surface-variant;
+    white-space: nowrap;
+    flex-shrink: 0;
+
+    .required-mark {
+      color: #f56c6c;
+      margin-left: 2px;
+    }
+  }
 }
 
 .location-bar {
@@ -534,7 +706,6 @@ $m3-on-surface-variant: #444746;
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
-  min-width: 0;
 
   .resource-select {
     width: min(260px, 100%);
@@ -547,12 +718,6 @@ $m3-on-surface-variant: #444746;
   align-items: center;
   gap: 12px;
   min-width: 0;
-
-  .date-range-label {
-    font-size: 14px;
-    color: $m3-on-surface-variant;
-    white-space: nowrap;
-  }
 
   .date-range-picker {
     flex: 1;
@@ -589,5 +754,12 @@ $m3-on-surface-variant: #444746;
     color: $m3-on-surface-variant;
     font-weight: 500;
   }
+}
+
+.select-header-options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 0;
 }
 </style>

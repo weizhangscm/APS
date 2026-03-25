@@ -67,6 +67,8 @@
         <el-descriptions-item :label="t('dsResource.workCenterDesc')">{{ getWorkCenterDescription(currentResource.work_center_id) }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.start')">{{ currentResource.start_time }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.end')">{{ currentResource.end_time }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsResource.restStart')">{{ formatHm(currentResource.operating_rest_start) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsResource.restEnd')">{{ formatHm(currentResource.operating_rest_end) }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.breakPeriod')">{{ currentResource.break_time }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.utilizationPercent')">{{ currentResource.utilization_percent.toFixed(3) }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.productionHours')">{{ currentResource.production_hours.toFixed(2) }}</el-descriptions-item>
@@ -120,6 +122,43 @@
             <el-option v-for="loc in locations" :key="loc.code" :label="loc.description ? `${loc.code} — ${loc.description}` : loc.code" :value="loc.code" />
           </el-select>
         </el-form-item>
+        <el-form-item :label="t('dsResource.start')">
+          <el-time-picker
+            v-model="form.operating_start"
+            :format="timePickerDisplayFormat"
+            value-format="HH:mm"
+            clearable
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item :label="t('dsResource.end')">
+          <el-time-picker
+            v-model="form.operating_end"
+            :format="timePickerDisplayFormat"
+            value-format="HH:mm"
+            clearable
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item :label="t('dsResource.restStart')">
+          <el-time-picker
+            v-model="form.operating_rest_start"
+            :format="timePickerDisplayFormat"
+            value-format="HH:mm"
+            clearable
+            style="width: 100%"
+          />
+        </el-form-item>
+        <el-form-item :label="t('dsResource.restEnd')">
+          <el-time-picker
+            v-model="form.operating_rest_end"
+            :format="timePickerDisplayFormat"
+            value-format="HH:mm"
+            clearable
+            style="width: 100%"
+          />
+        </el-form-item>
+        <div class="form-tip">{{ t('dsResource.breakPeriodAutoHint') }}</div>
         <el-form-item :label="t('dsResource.efficiency')">
           <el-input-number v-model="form.efficiency" :min="0" :max="2" :step="0.1" :precision="2" style="width: 100%" />
         </el-form-item>
@@ -147,10 +186,20 @@ import { masterDataApi } from '@/api'
 import { useI18nStore } from '@/stores/i18n'
 import { useDSFiltersStore } from '@/stores/dsFilters'
 import DataExcelToolbar from '@/components/DataExcelToolbar.vue'
+import {
+  elementTimePickerDisplayFormat,
+  formatDisplayTimeFromHm
+} from '@/utils/displayDateTime'
+
+function formatHm(hm) {
+  if (!hm || !String(hm).trim()) return '—'
+  return formatDisplayTimeFromHm(String(hm).trim())
+}
 
 const i18nStore = useI18nStore()
 const dsFiltersStore = useDSFiltersStore()
 const t = (key) => i18nStore.t(key)
+const timePickerDisplayFormat = computed(() => elementTimePickerDisplayFormat())
 
 const loading = ref(false)
 
@@ -175,6 +224,10 @@ const form = ref({
   name: '',
   work_center_id: null,
   location: '',
+  operating_start: '',
+  operating_end: '',
+  operating_rest_start: '',
+  operating_rest_end: '',
   efficiency: 1.0,
   capacity_per_day: 8.0,
   description: ''
@@ -282,6 +335,10 @@ const loadResources = async () => {
         name: resource.name,
         work_center_id: resource.work_center_id,
         location: resource.location || '',
+        operating_start: resource.operating_start || '',
+        operating_end: resource.operating_end || '',
+        operating_rest_start: resource.operating_rest_start || '',
+        operating_rest_end: resource.operating_rest_end || '',
         start_time,
         end_time,
         break_time,
@@ -332,6 +389,10 @@ const handleAdd = () => {
     name: '',
     work_center_id: null,
     location: '',
+    operating_start: '09:00',
+    operating_end: '18:00',
+    operating_rest_start: '',
+    operating_rest_end: '',
     efficiency: 1.0,
     capacity_per_day: 8.0,
     description: ''
@@ -348,6 +409,10 @@ const handleEdit = (row) => {
     name: row.name,
     work_center_id: row.work_center_id,
     location: row.location || '',
+    operating_start: row.operating_start || '',
+    operating_end: row.operating_end || '',
+    operating_rest_start: row.operating_rest_start || '',
+    operating_rest_end: row.operating_rest_end || '',
     efficiency: row.efficiency || 1.0,
     capacity_per_day: row.capacity_per_day || 8.0,
     description: row.description || ''
@@ -383,6 +448,10 @@ const handleSubmit = async () => {
       name: form.value.name,
       work_center_id: form.value.work_center_id ?? null,
       location: form.value.location?.trim() ? form.value.location.trim() : null,
+      operating_start: form.value.operating_start?.trim() || null,
+      operating_end: form.value.operating_end?.trim() || null,
+      operating_rest_start: form.value.operating_rest_start?.trim() || null,
+      operating_rest_end: form.value.operating_rest_end?.trim() || null,
       efficiency: form.value.efficiency,
       capacity_per_day: form.value.capacity_per_day,
       description: form.value.description?.trim() ? form.value.description.trim() : null

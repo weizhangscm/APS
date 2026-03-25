@@ -35,13 +35,27 @@
         </el-form-item>
         <el-form-item v-if="filterVisibility.location" :label="t('orders.location')">
           <el-select
-            v-model="filterLocation"
-            :placeholder="t('orders.allLocations')"
+            v-model="filterLocationCodes"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            :placeholder="t('orders.selectLocations')"
             clearable
             filterable
-            style="width: 170px"
-            @change="fetchData"
+            style="width: 220px"
+            @change="onFilterLocationChange"
           >
+            <template #header>
+              <div class="select-header-options">
+                <el-checkbox
+                  v-model="allOrderFilterLocationsSelected"
+                  :indeterminate="orderFilterLocationsIndeterminate"
+                  @change="handleSelectAllOrderFilterLocations"
+                >
+                  {{ t('orders.selectLocations') }}
+                </el-checkbox>
+              </div>
+            </template>
             <el-option
               v-for="loc in locationOptions"
               :key="loc.code"
@@ -74,6 +88,7 @@
           <el-date-picker
             v-model="filterDueDateRange"
             type="daterange"
+            :format="datePickerDisplayFormat"
             :range-separator="t('orders.separator')"
             :start-placeholder="t('orders.startDate')"
             :end-placeholder="t('orders.endDate')"
@@ -85,14 +100,28 @@
         </el-form-item>
         <el-form-item v-if="filterVisibility.resource" :label="t('orders.resource')">
           <el-select
-            v-model="filterResourceId"
-            :placeholder="t('orders.selectResource')"
+            v-model="filterResourceIds"
+            multiple
+            collapse-tags
+            collapse-tags-tooltip
+            :placeholder="orderResourceSelectPlaceholder"
             clearable
             filterable
-            style="width: 180px"
+            style="width: 240px"
           >
+            <template #header>
+              <div class="select-header-options">
+                <el-checkbox
+                  v-model="allOrderFilterResourcesSelected"
+                  :indeterminate="orderFilterResourcesIndeterminate"
+                  @change="handleSelectAllOrderFilterResources"
+                >
+                  {{ t('orders.selectResources') }}
+                </el-checkbox>
+              </div>
+            </template>
             <el-option
-              v-for="resource in resources"
+              v-for="resource in resourcesForOrderFilter"
               :key="resource.id"
               :label="resource.name"
               :value="resource.id"
@@ -248,6 +277,7 @@
           <el-date-picker 
             v-model="form.due_date" 
             type="datetime"
+            :format="dateTimePickerDisplayFormat"
             :placeholder="t('orders.dueDateRequired')"
             style="width: 100%"
           />
@@ -256,6 +286,7 @@
           <el-date-picker 
             v-model="form.earliest_start" 
             type="datetime"
+            :format="dateTimePickerDisplayFormat"
             :placeholder="t('orders.unlimited')"
             style="width: 100%"
           />
@@ -292,6 +323,7 @@
           <el-date-picker 
             v-model="convertForm.confirmed_start" 
             type="datetime"
+            :format="dateTimePickerDisplayFormat"
             :placeholder="t('orders.useScheduledTime')"
             style="width: 100%"
           />
@@ -301,6 +333,7 @@
           <el-date-picker 
             v-model="convertForm.confirmed_end" 
             type="datetime"
+            :format="dateTimePickerDisplayFormat"
             :placeholder="t('orders.useScheduledTime')"
             style="width: 100%"
           />
@@ -381,7 +414,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useMasterDataStore } from '@/stores/masterData'
 import { useDSFiltersStore } from '@/stores/dsFilters'
@@ -390,6 +423,12 @@ import { ordersApi, masterDataApi } from '@/api'
 import DataExcelToolbar from '@/components/DataExcelToolbar.vue'
 import dayjs from 'dayjs'
 import { Setting } from '@element-plus/icons-vue'
+import {
+  formatDisplayDate as formatDate,
+  formatDisplayDateTime as formatDateTime,
+  elementDatePickerDisplayFormat,
+  elementDateTimePickerDisplayFormat
+} from '@/utils/displayDateTime'
 
 const ORDERS_FILTER_VISIBILITY_KEY = 'ds_orders_filter_visibility'
 
@@ -418,6 +457,9 @@ const store = useMasterDataStore()
 const dsFiltersStore = useDSFiltersStore()
 const i18nStore = useI18nStore()
 const t = (key) => i18nStore.t(key)
+
+const datePickerDisplayFormat = computed(() => elementDatePickerDisplayFormat())
+const dateTimePickerDisplayFormat = computed(() => elementDateTimePickerDisplayFormat())
 
 const loading = computed(() => dsFiltersStore.ordersLoading)
 const products = computed(() => store.products)
@@ -477,10 +519,86 @@ const filterStatus = ref('')
 const filterOrderType = ref('')
 const filterDueDateRange = ref(null)
 const filterOrderNumber = ref('')
-const filterResourceId = ref(null)
+const filterResourceIds = ref([])
 const filterDelayed = ref(null)
-const filterLocation = ref('')
+const filterLocationCodes = ref([])
 const locationOptions = ref([])
+
+const normOrderLocationCode = (v) => (v != null && String(v).trim() ? String(v).trim() : '')
+
+const filterOrderLocationCodesNorm = computed(() =>
+  [...new Set(filterLocationCodes.value.map(normOrderLocationCode).filter(Boolean))]
+)
+
+/** 未选位置：全部资源；已选位置：仅 resource.location 与所选代码严格一致（未维护则不匹配） */
+const resourcesForOrderFilter = computed(() => {
+  const codes = filterOrderLocationCodesNorm.value
+  const all = resources.value || []
+  if (codes.length === 0) return all
+  const set = new Set(codes)
+  return all.filter((r) => set.has(normOrderLocationCode(r.location)))
+})
+
+const orderResourceSelectPlaceholder = computed(() => {
+  if (filterOrderLocationCodesNorm.value.length > 0 && resourcesForOrderFilter.value.length === 0) {
+    return t('orders.noResourcesAtLocation')
+  }
+  return t('orders.selectResources')
+})
+
+const allOrderFilterLocationsSelected = computed(() => {
+  const options = locationOptions.value
+  if (options.length === 0) return false
+  const selected = new Set(filterLocationCodes.value)
+  return selected.size === options.length && options.every((loc) => selected.has(loc.code))
+})
+
+const orderFilterLocationsIndeterminate = computed(() => {
+  const options = locationOptions.value
+  const selected = new Set(filterLocationCodes.value)
+  const n = options.filter((loc) => selected.has(loc.code)).length
+  return n > 0 && n < options.length
+})
+
+const handleSelectAllOrderFilterLocations = (val) => {
+  if (val) {
+    filterLocationCodes.value = locationOptions.value.map((loc) => loc.code)
+  } else {
+    filterLocationCodes.value = []
+  }
+  onFilterLocationChange()
+}
+
+const allOrderFilterResourcesSelected = computed(() => {
+  const options = resourcesForOrderFilter.value
+  return (
+    options.length > 0 &&
+    filterResourceIds.value.length === options.length &&
+    options.every((r) => filterResourceIds.value.includes(r.id))
+  )
+})
+
+const orderFilterResourcesIndeterminate = computed(() => {
+  const options = resourcesForOrderFilter.value
+  const selectedInOptions = options.filter((r) => filterResourceIds.value.includes(r.id)).length
+  return selectedInOptions > 0 && selectedInOptions < options.length
+})
+
+const handleSelectAllOrderFilterResources = (val) => {
+  if (val) {
+    filterResourceIds.value = resourcesForOrderFilter.value.map((r) => r.id)
+  } else {
+    const filteredIds = new Set(resourcesForOrderFilter.value.map((r) => r.id))
+    filterResourceIds.value = filterResourceIds.value.filter((id) => !filteredIds.has(id))
+  }
+}
+
+async function onFilterLocationChange() {
+  await nextTick()
+  const allowed = new Set(resourcesForOrderFilter.value.map((r) => r.id))
+  filterResourceIds.value = filterResourceIds.value.filter((id) => allowed.has(id))
+  fetchData()
+}
 
 const filterVisibility = reactive(loadFilterVisibility())
 const adjustFiltersDialogVisible = ref(false)
@@ -506,14 +624,14 @@ const confirmAdjustFilters = () => {
   const d = filterVisibilityDraft
   if (!d.orderNumber) filterOrderNumber.value = ''
   if (!d.location) {
-    filterLocation.value = ''
+    filterLocationCodes.value = []
     fetchData()
   }
   if (!d.orderType) filterOrderType.value = ''
   if (!d.status) filterStatus.value = ''
   if (!d.delayed) filterDelayed.value = null
   if (!d.dueDate) filterDueDateRange.value = null
-  if (!d.resource) filterResourceId.value = null
+  if (!d.resource) filterResourceIds.value = []
   Object.assign(filterVisibility, d)
   persistFilterVisibility()
   adjustFiltersDialogVisible.value = false
@@ -603,12 +721,12 @@ const filteredOrders = computed(() => {
     })
   }
   
-  // 如果设置了资源筛选
-  if (filterResourceId.value) {
-    orders = orders.filter(order => {
-      // 检查订单的工序中是否有分配到该资源的
+  // 如果设置了资源筛选（多选：任一工序落在所选资源之一即保留）
+  if (filterResourceIds.value?.length) {
+    const idSet = new Set(filterResourceIds.value)
+    orders = orders.filter((order) => {
       if (!order.operations || order.operations.length === 0) return false
-      return order.operations.some(op => op.resource_id === filterResourceId.value)
+      return order.operations.some((op) => op.resource_id != null && idSet.has(op.resource_id))
     })
   }
   
@@ -678,7 +796,7 @@ const fetchData = () => {
   // 使用共享的dsFiltersStore来获取订单数据
   // 注意：不再传递 filterStatus 和 filterOrderType 给后端，因为这些筛选在前端完成
   dsFiltersStore.fetchDSOrders(null, null, {
-    filterLocation: filterLocation.value
+    filterLocationCodes: filterLocationCodes.value
   })
 }
 
@@ -734,14 +852,6 @@ const orderStatusInOpsDialog = computed(() => {
   const hasPending = ops.some(op => op.status === 'pending')
   return hasPending ? 'created' : order.status
 })
-
-const formatDate = (date) => {
-  return date ? dayjs(date).format('YYYY-MM-DD') : ''
-}
-
-const formatDateTime = (date) => {
-  return date ? dayjs(date).format('MM-DD HH:mm') : ''
-}
 
 // 获取订单的预计完工时间（最后一道工序的结束时间）
 const getEstimatedFinishTime = (order) => {
@@ -1011,5 +1121,12 @@ onMounted(async () => {
   .el-button {
     margin: 0 !important;
   }
+}
+
+.select-header-options {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 0;
 }
 </style>

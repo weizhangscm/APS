@@ -132,7 +132,10 @@ import { useRouter } from 'vue-router'
 import { useSchedulingStore } from '@/stores/scheduling'
 import { ordersApi } from '@/api'
 import GanttChart from '@/components/GanttChart.vue'
-import dayjs from 'dayjs'
+import {
+  formatDisplayDate as formatDate,
+  formatDisplayDateTime as formatDateTime
+} from '@/utils/displayDateTime'
 
 const router = useRouter()
 const schedulingStore = useSchedulingStore()
@@ -148,14 +151,6 @@ const loadingOrder = ref(false)
 
 const refreshData = () => {
   schedulingStore.fetchGanttData('resource')
-}
-
-const formatDate = (date) => {
-  return date ? dayjs(date).format('YYYY-MM-DD') : ''
-}
-
-const formatDateTime = (date) => {
-  return date ? dayjs(date).format('MM-DD HH:mm') : ''
 }
 
 const handleTaskUpdated = async (data) => {

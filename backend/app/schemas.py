@@ -85,6 +85,8 @@ class ResourceBase(BaseModel):
     location: Optional[str] = None
     operating_start: Optional[str] = None
     operating_end: Optional[str] = None
+    operating_rest_start: Optional[str] = None
+    operating_rest_end: Optional[str] = None
     operating_break: Optional[str] = None
     utilization_percent: Optional[float] = None
     production_hours: Optional[float] = None
@@ -110,6 +112,8 @@ class ResourceUpdate(BaseModel):
     location: Optional[str] = None
     operating_start: Optional[str] = None
     operating_end: Optional[str] = None
+    operating_rest_start: Optional[str] = None
+    operating_rest_end: Optional[str] = None
     operating_break: Optional[str] = None
     utilization_percent: Optional[float] = None
     production_hours: Optional[float] = None
@@ -143,7 +147,9 @@ class ShiftBase(BaseModel):
     shift_name: str = Field(..., max_length=100)
     start_time: str = Field(..., max_length=10)   # "HH:mm"
     end_time: str = Field(..., max_length=10)     # "HH:mm"
-    break_time: int = 0                           # 休息时间(分钟)
+    break_start_time: Optional[str] = Field(None, max_length=10)
+    break_end_time: Optional[str] = Field(None, max_length=10)
+    break_time: int = 0                           # 休息时间(分钟)，可由休息起止自动写入
     location: str = Field(..., max_length=50, description="位置代码，须存在于位置主数据")
 
 
@@ -157,6 +163,8 @@ class ShiftUpdate(BaseModel):
     shift_name: Optional[str] = Field(None, max_length=100)
     start_time: Optional[str] = Field(None, max_length=10)
     end_time: Optional[str] = Field(None, max_length=10)
+    break_start_time: Optional[str] = Field(None, max_length=10)
+    break_end_time: Optional[str] = Field(None, max_length=10)
     break_time: Optional[int] = None
     location: Optional[str] = Field(None, max_length=50)
 

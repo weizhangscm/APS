@@ -2,7 +2,7 @@
 排程算法模块
 支持正向排程、逆向排程、有限产能排程
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time, date
 from typing import List, Dict, Tuple, Optional
 from sqlalchemy.orm import Session
 from collections import defaultdict
@@ -41,20 +41,127 @@ class SchedulingAlgorithm:
         minutes = max(0.0, end_min - start_min - break_minutes)
         return round(minutes / 60 * 100) / 100
 
+    def _productive_segments_for_snap(self, resource_id: int, day: date) -> List[Tuple[datetime, datetime]]:
+        from ..services.working_segments import (
+            productive_segments_one_template_on_day,
+            productive_segments_starting_on_day,
+        )
+
+        segs: List[Tuple[datetime, datetime]] = []
+        segs.extend(productive_segments_starting_on_day(self.db, resource_id, day - timedelta(days=1)))
+        segs.extend(productive_segments_starting_on_day(self.db, resource_id, day))
+        segs.sort(key=lambda x: x[0])
+        # 主数据异常导致无区间时，避免找槽退化为 24h 连续墙钟
+        if not segs:
+            segs.extend(
+                productive_segments_one_template_on_day(
+                    day - timedelta(days=1), "09:00", "18:00", None, None, 0
+                )
+            )
+            segs.extend(
+                productive_segments_one_template_on_day(day, "09:00", "18:00", None, None, 0)
+            )
+            segs.sort(key=lambda x: x[0])
+        return segs
+
+    def _snap_to_next_working_instant(self, dt: datetime, resource_id: int) -> datetime:
+        """将 dt 前移到第一个处于可排产区间内的时刻（休息开始–结束之间不可排）。"""
+        t = dt
+        for _ in range(800):
+            day = t.date()
+            segments = self._productive_segments_for_snap(resource_id, day)
+            for ws, we in segments:
+                if ws <= t < we:
+                    return t
+                if t < ws:
+                    return ws
+            t = datetime.combine(day + timedelta(days=1), time.min)
+        return t
+
+    def _add_productive_duration(self, start: datetime, duration_h: float, resource_id: int) -> datetime:
+        """从 start 起累计 duration_h 小时，仅在可排产墙钟内推进（1 墙钟小时 = 1 生产小时）。"""
+        if duration_h <= 0:
+            return start
+        current = start
+        rem = float(duration_h)
+        guard = 0
+        while rem > 1e-9 and guard < 8000:
+            guard += 1
+            day = current.date()
+            segments = self._productive_segments_for_snap(resource_id, day)
+            advanced = False
+            for ws, we in segments:
+                if we <= current:
+                    continue
+                t0 = max(current, ws)
+                if t0 >= we:
+                    continue
+                wall_left = (we - t0).total_seconds() / 3600.0
+                if wall_left >= rem:
+                    return t0 + timedelta(hours=rem)
+                rem -= wall_left
+                current = we
+                advanced = True
+                break
+            if not advanced:
+                current = datetime.combine(day + timedelta(days=1), time.min)
+        return start + timedelta(hours=duration_h)
+
+    def _subtract_productive_duration(self, end_dt: datetime, duration_h: float, resource_id: int) -> datetime:
+        """从 end_dt 向前回推 duration_h 个生产小时（用于逆向找槽）。"""
+        if duration_h <= 0:
+            return end_dt
+        current = end_dt
+        rem = float(duration_h)
+        guard = 0
+        while rem > 1e-9 and guard < 8000:
+            guard += 1
+            day = current.date()
+            segments = self._productive_segments_for_snap(resource_id, day)
+            found = False
+            for ws, we in reversed(segments):
+                t_seg_end = we if we <= current else current
+                if t_seg_end <= ws:
+                    continue
+                wall_portion = (t_seg_end - ws).total_seconds() / 3600.0
+                if wall_portion <= 1e-9:
+                    current = ws
+                    found = True
+                    break
+                if rem <= wall_portion:
+                    return t_seg_end - timedelta(hours=rem)
+                rem -= wall_portion
+                current = ws
+                found = True
+                break
+            if not found:
+                # 移到前一日历日末，以便纳入跨日班次（如当日凌晨落在前一日夜班内）
+                current = datetime.combine(day, time.min) - timedelta(seconds=1)
+        return end_dt - timedelta(hours=duration_h)
+
+    def _snap_end_to_working_instant(self, dt: datetime, resource_id: int) -> datetime:
+        """不大于 dt 的、落在某可排产区间内的最晚时刻；若 dt 在区间内则返回 dt。"""
+        t = dt
+        for _ in range(800):
+            day = t.date()
+            segments = self._productive_segments_for_snap(resource_id, day)
+            best: Optional[datetime] = None
+            for ws, we in segments:
+                if ws <= t <= we:
+                    return t
+                if we <= t and we > ws:
+                    if best is None or we > best:
+                        best = we
+            if best is not None:
+                return best
+            t = datetime.combine(day - timedelta(days=1), time(23, 59, 59))
+        return dt
+
     def get_resource_capacity(self, resource_id: int) -> float:
-        """获取资源每日产能(小时)。无班次时与 DS 资源视图一致取 9 小时；有班次时为班次(结束−开始−休息)之和。"""
-        resource = self.db.query(models.Resource).filter(models.Resource.id == resource_id).first()
-        if not resource:
-            return 9.0
-        shifts = self.db.query(models.Shift).filter(models.Shift.resource_id == resource.id).all()
-        if not shifts:
-            return 9.0
-        total = 0.0
-        for s in shifts:
-            total += self._shift_production_hours(s.start_time, s.end_time, s.break_time or 0)
-        if total > 0:
-            return round(total, 2)
-        return 9.0
+        """每日可排产小时（按休息起止挖空后的区间长度之和）。"""
+        from ..services.working_segments import daily_productive_hours_for_resource
+
+        return daily_productive_hours_for_resource(self.db, resource_id)
     
     def get_available_resources(self, work_center_id: Optional[int]) -> List[models.Resource]:
         """获取工作中心的可用资源；work_center_id 为空时取未关联工作中心的资源"""
@@ -200,59 +307,39 @@ class SchedulingAlgorithm:
         consider_capacity: bool = True
     ) -> Tuple[datetime, datetime]:
         """
-        找到资源的下一个可用时间段
-        考虑有限产能约束
+        找到资源的下一个可用时间段（有限产能时按班次/资源 operating 墙钟与休息折算生产小时）。
         """
-        capacity_per_day = self.get_resource_capacity(resource_id)
-        
         if not consider_capacity:
-            # 无限产能模式，直接返回最早开始时间
-            end_time = earliest_start + timedelta(hours=duration_hours)
-            return earliest_start, end_time
+            # 无限产能仅表示不避让已有占用，仍须在班次/资源作业窗内排程
+            cs = self._snap_to_next_working_instant(earliest_start, resource_id)
+            ce = self._add_productive_duration(cs, duration_hours, resource_id)
+            return cs, ce
         
-        current_time = earliest_start
         existing_slots = sorted(self.resource_load.get(resource_id, []))
-        
-        # 简化算法：按天累计产能
-        while True:
-            day_start = current_time.replace(hour=8, minute=0, second=0, microsecond=0)
-            day_end = day_start + timedelta(hours=capacity_per_day)
-            
-            # 计算当天已用产能
-            day_used = 0.0
+        candidate_start = self._snap_to_next_working_instant(earliest_start, resource_id)
+        max_iterations = 365 * 20
+        for _ in range(max_iterations):
+            conflict_end = None
             for slot_start, slot_end, *rest in existing_slots:
-                if slot_start.date() == current_time.date():
-                    day_used += (slot_end - slot_start).total_seconds() / 3600
-            
-            available_today = capacity_per_day - day_used
-            
-            if available_today >= duration_hours:
-                # 当天有足够产能
-                # 找到当天最后一个工序的结束时间
-                last_end_today = day_start
-                for slot_start, slot_end, *rest in existing_slots:
-                    if slot_start.date() == current_time.date():
-                        if slot_end > last_end_today:
-                            last_end_today = slot_end
-                
-                start_time = max(last_end_today, current_time)
-                if start_time < day_start:
-                    start_time = day_start
-                end_time = start_time + timedelta(hours=duration_hours)
-                return start_time, end_time
-            else:
-                # 移动到下一天
-                current_time = (current_time + timedelta(days=1)).replace(
-                    hour=8, minute=0, second=0, microsecond=0
-                )
-                
-            # 防止无限循环
-            if (current_time - earliest_start).days > 365:
-                break
+                if slot_start <= candidate_start < slot_end:
+                    conflict_end = slot_end
+                    break
+            if conflict_end is not None:
+                candidate_start = self._snap_to_next_working_instant(conflict_end, resource_id)
+                continue
+            candidate_end = self._add_productive_duration(candidate_start, duration_hours, resource_id)
+            has_conflict = False
+            for slot_start, slot_end, *rest in existing_slots:
+                if slot_start < candidate_end and slot_end > candidate_start:
+                    has_conflict = True
+                    candidate_start = self._snap_to_next_working_instant(slot_end, resource_id)
+                    break
+            if not has_conflict:
+                return candidate_start, candidate_end
         
-        # 回退到无限产能模式
-        end_time = earliest_start + timedelta(hours=duration_hours)
-        return earliest_start, end_time
+        cs = self._snap_to_next_working_instant(earliest_start, resource_id)
+        ce = self._add_productive_duration(cs, duration_hours, resource_id)
+        return cs, ce
     
     def find_latest_slot(
         self,
@@ -262,48 +349,32 @@ class SchedulingAlgorithm:
         consider_capacity: bool = True
     ) -> Tuple[datetime, datetime]:
         """
-        逆向排程：从截止时间向前找可用时间段
+        逆向排程：从截止时间向前找可用时间段（按班次/资源 operating）。
         """
         if not consider_capacity:
-            start_time = latest_end - timedelta(hours=duration_hours)
-            return start_time, latest_end
+            ce = self._snap_end_to_working_instant(latest_end, resource_id)
+            cs = self._subtract_productive_duration(ce, duration_hours, resource_id)
+            return cs, ce
         
-        capacity_per_day = self.get_resource_capacity(resource_id)
-        current_time = latest_end
-        existing_slots = sorted(self.resource_load.get(resource_id, []), reverse=True)
-        
-        while True:
-            day_start = current_time.replace(hour=8, minute=0, second=0, microsecond=0)
-            day_end = day_start + timedelta(hours=capacity_per_day)
-            
-            # 计算当天已用产能
-            day_used = 0.0
+        existing_slots = sorted(self.resource_load.get(resource_id, []), key=lambda x: x[0])
+        current_end = self._snap_end_to_working_instant(latest_end, resource_id)
+        max_iterations = 365 * 20
+        for _ in range(max_iterations):
+            cand_start = self._subtract_productive_duration(current_end, duration_hours, resource_id)
+            conflict = False
             for slot_start, slot_end, *rest in existing_slots:
-                if slot_start.date() == current_time.date():
-                    day_used += (slot_end - slot_start).total_seconds() / 3600
-            
-            available_today = capacity_per_day - day_used
-            
-            if available_today >= duration_hours:
-                # 当天有足够产能
-                end_time = min(current_time, day_end)
-                start_time = end_time - timedelta(hours=duration_hours)
-                if start_time < day_start:
-                    start_time = day_start
-                    end_time = start_time + timedelta(hours=duration_hours)
-                return start_time, end_time
-            else:
-                # 移动到前一天
-                current_time = (current_time - timedelta(days=1)).replace(
-                    hour=17, minute=0, second=0, microsecond=0
-                )
-            
-            # 防止无限循环
-            if (latest_end - current_time).days > 365:
-                break
+                if slot_start < current_end and slot_end > cand_start:
+                    conflict = True
+                    current_end = self._snap_end_to_working_instant(
+                        slot_start - timedelta(microseconds=1), resource_id
+                    )
+                    break
+            if not conflict:
+                return cand_start, current_end
         
-        start_time = latest_end - timedelta(hours=duration_hours)
-        return start_time, latest_end
+        ce = self._snap_end_to_working_instant(latest_end, resource_id)
+        cs = self._subtract_productive_duration(ce, duration_hours, resource_id)
+        return cs, ce
 
 
 class ForwardScheduler(SchedulingAlgorithm):
@@ -1203,13 +1274,17 @@ class StableForwardScheduler(SchedulingAlgorithm):
             
             # ========== 根据计划模式和方向查找可用时间段 ==========
             if use_infinite_capacity:
-                # 无限产能模式：直接在期望日期排程，不考虑资源负荷
+                # 无限产能：不避让已有占用，但仍须落在班次/资源可作业墙钟区间内
                 if direction == 'forward':
-                    slot_start = desired_time
-                    slot_end = desired_time + timedelta(hours=total_duration)
+                    slot_start = self._snap_to_next_working_instant(desired_time, resource.id)
+                    slot_end = self._add_productive_duration(
+                        slot_start, total_duration, resource.id
+                    )
                 else:
-                    slot_end = desired_time
-                    slot_start = desired_time - timedelta(hours=total_duration)
+                    slot_end = self._snap_end_to_working_instant(desired_time, resource.id)
+                    slot_start = self._subtract_productive_duration(
+                        slot_end, total_duration, resource.id
+                    )
             else:
                 # 有限产能模式（查找槽位）：在资源负荷中寻找空闲时间段
                 if direction == 'forward':
@@ -1301,47 +1376,40 @@ class StableForwardScheduler(SchedulingAlgorithm):
         display_start_date = getattr(self, 'display_start_date', None)
         
         if not self.finite_capacity:
-            # 无限产能模式：若早于显示区间开始则不排程
-            slot_end = latest_end
-            slot_start = latest_end - timedelta(hours=duration_hours)
+            current_end = self._snap_end_to_working_instant(latest_end, resource_id)
+            slot_start = self._subtract_productive_duration(
+                current_end, duration_hours, resource_id
+            )
             if display_start_date and slot_start < display_start_date:
                 return None, None
-            return slot_start, slot_end
+            return slot_start, current_end
         
-        slots = sorted(self.resource_slots.get(resource_id, []), key=lambda x: x[0], reverse=True)
+        existing_slots = sorted(self.resource_slots.get(resource_id, []), key=lambda x: x[0])
+        current_end = self._snap_end_to_working_instant(latest_end, resource_id)
         
-        current_end = latest_end
-        duration = timedelta(hours=duration_hours)
-        
-        # 计划范围的最早时间；方案C：不得早于显示区间开始
         earliest_allowed = datetime.now() - timedelta(days=7)
         if display_start_date:
             earliest_allowed = max(earliest_allowed, display_start_date)
         
-        for slot_start, slot_end, op_id, product_id, is_fixed in slots:
-            if slot_end <= earliest_allowed:
-                break
-            
-            if slot_end <= current_end:
-                gap = current_end - slot_end
-                if gap >= duration:
-                    start = current_end - duration
-                    if display_start_date and start < display_start_date:
-                        return None, None
-                    return (start, current_end)
-                current_end = slot_start
-        
-        if current_end - earliest_allowed >= duration:
-            start = current_end - duration
-            if display_start_date and start < display_start_date:
+        max_iterations = self.planning_horizon * 20
+        for _ in range(max_iterations):
+            cand_start = self._subtract_productive_duration(current_end, duration_hours, resource_id)
+            if cand_start < earliest_allowed:
                 return None, None
-            return (current_end - duration, current_end)
-        
-        if current_end >= earliest_allowed + duration:
-            start = current_end - duration
-            if display_start_date and start < display_start_date:
+            if display_start_date and cand_start < display_start_date:
                 return None, None
-            return (current_end - duration, current_end)
+            conflict = False
+            for s, e, _, _, _ in existing_slots:
+                if s < current_end and e > cand_start:
+                    conflict = True
+                    current_end = self._snap_end_to_working_instant(
+                        s - timedelta(microseconds=1), resource_id
+                    )
+                    break
+            if not conflict:
+                return cand_start, current_end
+            if current_end < earliest_allowed:
+                return None, None
         
         return None, None
     
@@ -1386,29 +1454,29 @@ class StableForwardScheduler(SchedulingAlgorithm):
         display_end_date = getattr(self, 'display_end_date', None)
         
         if not self.finite_capacity:
-            # 无限产能模式：若超出显示区间则不排程
-            end_time = earliest_start + timedelta(hours=duration_hours)
-            if display_end_date and end_time > display_end_date:
+            candidate_start = self._snap_to_next_working_instant(earliest_start, resource_id)
+            candidate_end = self._add_productive_duration(
+                candidate_start, duration_hours, resource_id
+            )
+            if display_end_date and candidate_start >= display_end_date:
                 return None, None
-            return earliest_start, end_time
+            if display_end_date and candidate_end > display_end_date:
+                return None, None
+            return candidate_start, candidate_end
         
-        capacity_per_day = self.get_resource_capacity(resource_id)
         existing_slots = sorted(self.resource_slots.get(resource_id, []), key=lambda x: x[0])
         
-        # 从最早开始时间开始寻找可用时间段
-        candidate_start = self._get_next_working_time(earliest_start, capacity_per_day)
+        candidate_start = self._snap_to_next_working_instant(earliest_start, resource_id)
         
-        max_iterations = self.planning_horizon * 10  # 增加迭代次数以支持更长的搜索
+        max_iterations = self.planning_horizon * 10
         iteration = 0
         
         while iteration < max_iterations:
             iteration += 1
             
-            # 方案C：候选开始时间已超过显示区间结束则不再排程
             if display_end_date and candidate_start >= display_end_date:
                 return None, None
             
-            # 检查candidate_start是否与现有时间段冲突
             conflict_end = None
             for s, e, _, _, _ in existing_slots:
                 if s <= candidate_start < e:
@@ -1416,104 +1484,25 @@ class StableForwardScheduler(SchedulingAlgorithm):
                     break
             
             if conflict_end:
-                candidate_start = self._get_next_working_time(conflict_end, capacity_per_day)
+                candidate_start = self._snap_to_next_working_instant(conflict_end, resource_id)
                 continue
             
-            # 计算工序的实际结束时间（考虑非工作时间）
-            candidate_end = self._calculate_end_time(candidate_start, duration_hours, capacity_per_day)
+            candidate_end = self._add_productive_duration(candidate_start, duration_hours, resource_id)
             
-            # 方案C：工序结束时间不得超过显示区间结束
             if display_end_date and candidate_end > display_end_date:
                 return None, None
             
-            # 检查整个工序时间段是否与现有排程冲突
             has_conflict = False
             for s, e, _, _, _ in existing_slots:
                 if s < candidate_end and e > candidate_start:
                     has_conflict = True
-                    candidate_start = self._get_next_working_time(e, capacity_per_day)
+                    candidate_start = self._snap_to_next_working_instant(e, resource_id)
                     break
             
             if not has_conflict:
                 return candidate_start, candidate_end
         
-        # 找不到显示区间内的可用时间段，不排到区间外
         return None, None
-    
-    def _get_next_working_time(self, dt: datetime, capacity_per_day: float) -> datetime:
-        """
-        获取下一个工作时间点
-        
-        如果给定时间在工作时间内，返回该时间
-        如果在非工作时间，返回下一个工作日的开始时间
-        """
-        work_start_hour = 8
-        work_end_hour = work_start_hour + int(capacity_per_day)  # 例如8+8=16点
-        
-        if dt.hour < work_start_hour:
-            # 在当天工作开始之前，移动到当天工作开始
-            return dt.replace(hour=work_start_hour, minute=0, second=0, microsecond=0)
-        elif dt.hour >= work_end_hour:
-            # 在当天工作结束之后，移动到下一天工作开始
-            next_day = dt + timedelta(days=1)
-            return next_day.replace(hour=work_start_hour, minute=0, second=0, microsecond=0)
-        else:
-            # 在工作时间内
-            return dt
-    
-    def _calculate_end_time(
-        self, 
-        start_time: datetime, 
-        duration_hours: float, 
-        capacity_per_day: float
-    ) -> datetime:
-        """
-        计算工序的实际结束时间（考虑跨天）
-        
-        SAP式时间连续排程：
-        - 工序从start_time开始
-        - 只在工作时间内计算，非工作时间自动跳过
-        - 返回工序实际完成的时间
-        """
-        work_start_hour = 8
-        work_end_hour = work_start_hour + int(capacity_per_day)
-        
-        remaining_hours = duration_hours
-        current_time = start_time
-        
-        max_days = 365  # 防止无限循环
-        days_checked = 0
-        
-        while remaining_hours > 0 and days_checked < max_days:
-            days_checked += 1
-            
-            # 确保在工作时间内
-            if current_time.hour < work_start_hour:
-                current_time = current_time.replace(hour=work_start_hour, minute=0, second=0, microsecond=0)
-            elif current_time.hour >= work_end_hour:
-                # 移动到下一天
-                current_time = (current_time + timedelta(days=1)).replace(
-                    hour=work_start_hour, minute=0, second=0, microsecond=0
-                )
-                continue
-            
-            # 计算当天剩余的工作时间
-            day_end = current_time.replace(hour=work_end_hour, minute=0, second=0, microsecond=0)
-            available_hours_today = (day_end - current_time).total_seconds() / 3600
-            
-            if remaining_hours <= available_hours_today:
-                # 当天可以完成
-                end_time = current_time + timedelta(hours=remaining_hours)
-                return end_time
-            else:
-                # 当天无法完成，消耗当天所有时间，移动到下一天
-                remaining_hours -= available_hours_today
-                current_time = (current_time + timedelta(days=1)).replace(
-                    hour=work_start_hour, minute=0, second=0, microsecond=0
-                )
-        
-        # 回退：直接返回开始时间加上工序时长
-        return start_time + timedelta(hours=duration_hours)
     
     def _calculate_resource_load(
         self, 

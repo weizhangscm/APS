@@ -23,6 +23,7 @@ def _normalize_same_day_range(start_date, end_date):
 from .. import schemas
 from ..scheduler.engine import SchedulingEngine
 from ..scheduler.constraints import ConstraintValidator
+from ..services.location_catalog import parse_location_filter_codes
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -109,8 +110,15 @@ def get_gantt_data(
     view_type: str = Query("order", description="视图类型: order(订单视图) 或 resource(资源视图)"),
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
-    product_location: Optional[str] = Query(None, description="按产品位置代码过滤（与 resource_location 为 AND）"),
-    resource_location: Optional[str] = Query(None, description="按资源位置代码过滤"),
+    product_location: Optional[str] = Query(None, description="单产品位置代码（兼容旧参数）"),
+    resource_location: Optional[str] = Query(None, description="单资源位置代码（兼容旧参数）"),
+    product_locations: Optional[str] = Query(
+        None,
+        description="逗号分隔位置代码；与 resource_locations 合并去重后按订单 production_orders.location 筛选（非空时优先于单值参数）",
+    ),
+    resource_locations: Optional[str] = Query(
+        None, description="逗号分隔位置代码；与 product_locations 合并后同上"
+    ),
     db: Session = Depends(get_db),
 ):
     """
@@ -120,15 +128,18 @@ def get_gantt_data(
     - **start_date**: 开始日期
     - **end_date**: 结束日期
     - 当 start_date 与 end_date 为同一天时，时间区间按 00:00 - 23:59:59 处理
+    - 位置类参数：按 **订单** production_orders.location 筛选涉及的订单
     """
     start_date, end_date = _normalize_same_day_range(start_date, end_date)
+    pls = parse_location_filter_codes(product_locations, product_location)
+    rls = parse_location_filter_codes(resource_locations, resource_location)
     engine = SchedulingEngine(db)
     return engine.get_gantt_data(
         start_date=start_date,
         end_date=end_date,
         view_type=view_type,
-        product_location=product_location,
-        resource_location=resource_location,
+        product_locations=pls,
+        resource_locations=rls,
     )
 
 
@@ -177,8 +188,13 @@ def get_kpi_dashboard(
     due_date_end: Optional[str] = Query(None, description="交期区间结束日期 YYYY-MM-DD"),
     schedule_date_start: Optional[str] = Query(None, description="日期区间开始日期 YYYY-MM-DD（用于资源利用率/产能负荷/资源利用详情，按排程时间窗口过滤）"),
     schedule_date_end: Optional[str] = Query(None, description="日期区间结束日期 YYYY-MM-DD（用于资源利用率/产能负荷/资源利用详情，按排程时间窗口过滤）"),
-    product_location: Optional[str] = Query(None, description="产品位置代码（与 resource_location AND）"),
-    resource_location: Optional[str] = Query(None, description="资源位置代码"),
+    product_location: Optional[str] = Query(None, description="单产品位置代码（兼容旧参数）"),
+    resource_location: Optional[str] = Query(None, description="单资源位置代码（兼容旧参数）"),
+    product_locations: Optional[str] = Query(
+        None,
+        description="逗号分隔位置代码；与 resource_locations 合并去重后按订单 production_orders.location 筛选",
+    ),
+    resource_locations: Optional[str] = Query(None, description="逗号分隔位置代码；与 product_locations 合并后同上"),
     resource_ids: Optional[str] = Query(
         None,
         description="逗号分隔的资源 ID；限定订单 KPI 为「含这些资源上工序」的订单，且利用率/产能仅统计这些资源",
@@ -188,15 +204,18 @@ def get_kpi_dashboard(
 
     - 订单 KPI / 平均提前期：按交期区间（due_date_start/end）过滤，保持原有口径不变
     - 资源利用率 / 每日产能负荷 / 资源利用详情：按日期区间（schedule_date_start/end）过滤排程计划落在区间内的生产订单与计划订单
+    - 位置类参数：按 **订单** production_orders.location 筛选参与 KPI 的订单集合
     """
+    pls = parse_location_filter_codes(product_locations, product_location)
+    rls = parse_location_filter_codes(resource_locations, resource_location)
     engine = SchedulingEngine(db)
     return engine.get_kpi_data(
         due_date_start=due_date_start,
         due_date_end=due_date_end,
         schedule_date_start=schedule_date_start,
         schedule_date_end=schedule_date_end,
-        product_location=product_location,
-        resource_location=resource_location,
+        product_locations=pls,
+        resource_locations=rls,
         resource_ids=_parse_kpi_resource_ids_param(resource_ids),
     )
 
@@ -310,16 +329,24 @@ def get_utilization_data(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     zoom_level: int = Query(1, description="缩放级别: 0=小时, 1=4小时, 2=天, 3=周, 4=月"),
-    db: Session = Depends(get_db)
+    product_location: Optional[str] = Query(None, description="单位置代码（兼容旧参数）"),
+    resource_location: Optional[str] = Query(None, description="单位置代码（兼容旧参数）"),
+    product_locations: Optional[str] = Query(
+        None,
+        description="逗号分隔位置代码；与 resource_locations 合并后按订单 production_orders.location 过滤（与 KPI/甘特一致）",
+    ),
+    resource_locations: Optional[str] = Query(None, description="逗号分隔位置代码；与 product_locations 合并后同上"),
+    db: Session = Depends(get_db),
 ):
     """
-    获取资源利用率数据
+    获取资源利用率数据（详细计划表资源利用率图）
     
     - **resource_ids**: 资源ID列表，逗号分隔
     - **start_date**: 开始日期
     - **end_date**: 结束日期
-    - **zoom_level**: 缩放级别 (0=小时, 1=4小时, 2=天, 3=周, 4=月)
+    - **zoom_level**: 缩放级别 (0=按1小时桶, 1=按4小时桶, 2/3/4=按自然日桶；利用率=桶内已排有效工时/资源全天标准可用产能)
     - 当 start_date 与 end_date 为同一天时，时间区间按 00:00 - 23:59:59 处理
+    - 位置类参数：与 KPI 相同，按 **订单** location 过滤参与统计的工序
     """
     start_date, end_date = _normalize_same_day_range(start_date, end_date)
     engine = SchedulingEngine(db)
@@ -327,12 +354,17 @@ def get_utilization_data(
     resource_id_list = None
     if resource_ids:
         resource_id_list = [int(id.strip()) for id in resource_ids.split(",")]
+
+    pls = parse_location_filter_codes(product_locations, product_location)
+    rls = parse_location_filter_codes(resource_locations, resource_location)
     
     return engine.get_utilization_data(
         resource_ids=resource_id_list,
         start_date=start_date,
         end_date=end_date,
-        zoom_level=zoom_level
+        zoom_level=zoom_level,
+        product_locations=pls,
+        resource_locations=rls,
     )
 
 

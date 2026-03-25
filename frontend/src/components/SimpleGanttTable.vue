@@ -52,14 +52,14 @@
         <div class="time-axis">
           <div 
             v-for="day in timeAxis" 
-            :key="day.date" 
+            :key="day.timestamp" 
             class="time-slot"
             :class="{ 'is-hour-view': props.zoomLevel === 0 }"
             :style="{ width: dayWidth + 'px' }"
           >
-            <div class="day-label">{{ day.dateStr }}</div>
+            <div class="day-label">{{ formatDisplayDate(day.date) }}</div>
             <div class="hour-labels">
-              <span v-for="hour in hourTicks" :key="hour">{{ String(hour).padStart(2, '0') }}:00</span>
+              <span v-for="hour in hourTicks" :key="hour">{{ formatDisplayHourOfDay(hour) }}</span>
             </div>
           </div>
         </div>
@@ -114,6 +114,11 @@
 import { ref, computed, reactive } from 'vue'
 import { Folder, Document, Plus, Minus } from '@element-plus/icons-vue'
 import { useI18nStore } from '@/stores/i18n'
+import {
+  formatDisplayDate,
+  formatDisplayDateTime,
+  formatDisplayHourOfDay
+} from '@/utils/displayDateTime'
 
 const emit = defineEmits(['task-dragged'])
 
@@ -526,7 +531,6 @@ const generateTimeAxis = (start, end) => {
   while (current <= end) {
     days.push({
       date: new Date(current),
-      dateStr: `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, '0')}-${String(current.getDate()).padStart(2, '0')}`,
       timestamp: current.getTime()
     })
     current.setDate(current.getDate() + 1)
@@ -653,24 +657,8 @@ const getTaskClass = (item) => {
   return classes
 }
 
-// 格式化日期
-const formatDate = (dateStr) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
-
-// 格式化日期+时间（用于甘特条悬停 tooltip）
-const formatDateTime = (dateStr) => {
-  if (!dateStr) return '-'
-  const date = new Date(dateStr)
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  const h = String(date.getHours()).padStart(2, '0')
-  const min = String(date.getMinutes()).padStart(2, '0')
-  return `${y}-${m}-${d} ${h}:${min}`
-}
+const formatDate = (dateStr) => (dateStr ? formatDisplayDate(dateStr) : '-')
+const formatDateTime = (dateStr) => (dateStr ? formatDisplayDateTime(dateStr) : '-')
 </script>
 
 <style lang="scss" scoped>

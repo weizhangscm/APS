@@ -81,6 +81,7 @@ import { ElMessage } from 'element-plus'
 import { User, Lock } from '@element-plus/icons-vue'
 import { authApi } from '@/api'
 import { useI18nStore } from '@/stores/i18n'
+import { useUserDisplayPrefsStore } from '@/stores/userDisplayPrefs'
 
 const router = useRouter()
 const i18nStore = useI18nStore()
@@ -131,7 +132,8 @@ const handleLogin = async () => {
       // 保存 token 和用户信息
       localStorage.setItem('token', response.access_token)
       localStorage.setItem('user', JSON.stringify(response.user))
-      
+      useUserDisplayPrefsStore().hydrateFromLocalStorage()
+
       // 记住用户名
       if (rememberMe.value) {
         localStorage.setItem('rememberedUsername', loginForm.username)

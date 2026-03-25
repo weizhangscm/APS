@@ -41,8 +41,15 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { gantt } from 'dhtmlx-gantt'
+import { useUserDisplayPrefsStore } from '@/stores/userDisplayPrefs'
+import {
+  profileDateFormatToGanttFull,
+  profileDateFormatToGanttCompact,
+  ganttHourScaleFormat,
+  formatDisplayDateTime
+} from '@/utils/displayDateTime'
 
 const props = defineProps({
   tasks: {
@@ -68,35 +75,43 @@ const emit = defineEmits(['task-updated', 'task-clicked', 'link-added'])
 const ganttContainer = ref(null)
 let isInitialized = false
 
-// Zoom levels configuration
-const zoomLevels = ref([
-  { label: '小时', scales: [
-    { unit: "day", step: 1, format: "%m/%d" },
-    { unit: "hour", step: 1, format: "%H:00" }
-  ]},
-  { label: '4小时', scales: [
-    { unit: "day", step: 1, format: "%Y-%m-%d" },
-    { unit: "hour", step: 4, format: "%H:00" }
-  ]},
-  { label: '天', scales: [
-    { unit: "week", step: 1, format: "第%W周" },
-    { unit: "day", step: 1, format: "%m/%d" }
-  ]},
-  { label: '周', scales: [
-    { unit: "month", step: 1, format: "%Y年%m月" },
-    { unit: "week", step: 1, format: "第%W周" }
-  ]},
-  { label: '月', scales: [
-    { unit: "year", step: 1, format: "%Y年" },
-    { unit: "month", step: 1, format: "%m月" }
-  ]}
-])
+const prefsStore = useUserDisplayPrefsStore()
+
+const zoomLevels = computed(() => {
+  const df = profileDateFormatToGanttFull(prefsStore.date_format)
+  const dc = profileDateFormatToGanttCompact(prefsStore.date_format)
+  const h = ganttHourScaleFormat(prefsStore.time_format === '12h' ? '12h' : '24h')
+  return [
+    { label: '小时', scales: [
+      { unit: "day", step: 1, format: dc },
+      { unit: "hour", step: 1, format: h }
+    ]},
+    { label: '4小时', scales: [
+      { unit: "day", step: 1, format: df },
+      { unit: "hour", step: 4, format: h }
+    ]},
+    { label: '天', scales: [
+      { unit: "week", step: 1, format: "第%W周" },
+      { unit: "day", step: 1, format: dc }
+    ]},
+    { label: '周', scales: [
+      { unit: "month", step: 1, format: "%Y年%m月" },
+      { unit: "week", step: 1, format: "第%W周" }
+    ]},
+    { label: '月', scales: [
+      { unit: "year", step: 1, format: "%Y年" },
+      { unit: "month", step: 1, format: "%m月" }
+    ]}
+  ]
+})
 
 const currentZoom = ref(1) // Default to 4-hour view
 
 const applyZoom = () => {
   if (!isInitialized) return
-  const level = zoomLevels.value[currentZoom.value]
+  const levels = zoomLevels.value
+  const level = levels[currentZoom.value]
+  if (!level) return
   gantt.config.scales = level.scales
   gantt.render()
 }
@@ -146,7 +161,17 @@ const initGantt = () => {
   const firstColumnLabel = props.viewType === 'product' ? '产品' : '任务名称'
   gantt.config.columns = [
     { name: "text", label: firstColumnLabel, tree: true, width: 260, resize: true },
-    { name: "start_date", label: "开始时间", align: "center", width: 130, resize: true },
+    {
+      name: "start_date",
+      label: "开始时间",
+      align: "center",
+      width: 130,
+      resize: true,
+      template: (task) => {
+        if (!task.start_date) return ''
+        return formatDisplayDateTime(task.start_date)
+      }
+    },
     { name: "duration", label: "时长(H)", align: "center", width: 70, 
       template: (task) => {
         if (task.start_date && task.end_date) {
@@ -249,17 +274,6 @@ const initGantt = () => {
     return ''
   }
   
-  // 甘特图 tooltip 中开始/结束格式：日期 + 时间
-  const tooltipDateTimeFormat = (d) => {
-    const date = d instanceof Date ? d : new Date(d)
-    const y = date.getFullYear()
-    const m = String(date.getMonth() + 1).padStart(2, '0')
-    const day = String(date.getDate()).padStart(2, '0')
-    const h = String(date.getHours()).padStart(2, '0')
-    const min = String(date.getMinutes()).padStart(2, '0')
-    return `${y}-${m}-${day} ${h}:${min}`
-  }
-
   // Tooltip with more details
   gantt.templates.tooltip_text = (start, end, task) => {
     const duration = ((end - start) / (1000 * 60 * 60)).toFixed(1)
@@ -279,8 +293,8 @@ const initGantt = () => {
     let html = `<div class="gantt-tooltip-content">
       <div class="tooltip-title">${task.text}</div>
       <div class="tooltip-row"><span>类型:</span> <span class="${tagClass}">${orderTypeLabel}</span></div>
-      <div class="tooltip-row"><span>开始:</span> ${tooltipDateTimeFormat(start)}</div>
-      <div class="tooltip-row"><span>结束:</span> ${tooltipDateTimeFormat(end)}</div>
+      <div class="tooltip-row"><span>开始:</span> ${formatDisplayDateTime(start)}</div>
+      <div class="tooltip-row"><span>结束:</span> ${formatDisplayDateTime(end)}</div>
       <div class="tooltip-row"><span>时长:</span> ${duration} 小时</div>`
     
     if (isChangeover) {
@@ -509,6 +523,16 @@ watch(() => props.tasks, () => {
     loadData()
   })
 }, { deep: true })
+
+watch(
+  () => [prefsStore.date_format, prefsStore.time_format, prefsStore.user_timezone],
+  () => {
+    if (isInitialized) {
+      applyZoom()
+      gantt.render()
+    }
+  }
+)
 
 onMounted(() => {
   nextTick(() => {

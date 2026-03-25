@@ -143,6 +143,7 @@
           <el-date-picker 
             v-model="form.due_date" 
             type="datetime"
+            :format="dateTimePickerDisplayFormat"
             placeholder="请选择交货期"
             style="width: 100%"
           />
@@ -151,6 +152,7 @@
           <el-date-picker 
             v-model="form.earliest_start" 
             type="datetime"
+            :format="dateTimePickerDisplayFormat"
             placeholder="不限"
             style="width: 100%"
           />
@@ -187,6 +189,7 @@
           <el-date-picker 
             v-model="convertForm.confirmed_start" 
             type="datetime"
+            :format="dateTimePickerDisplayFormat"
             placeholder="使用排程时间"
             style="width: 100%"
           />
@@ -196,6 +199,7 @@
           <el-date-picker 
             v-model="convertForm.confirmed_end" 
             type="datetime"
+            :format="dateTimePickerDisplayFormat"
             placeholder="使用排程时间"
             style="width: 100%"
           />
@@ -279,8 +283,15 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { useMasterDataStore } from '@/stores/masterData'
 import { ordersApi } from '@/api'
 import dayjs from 'dayjs'
+import {
+  formatDisplayDate as formatDate,
+  formatDisplayDateTime as formatDateTime,
+  elementDateTimePickerDisplayFormat
+} from '@/utils/displayDateTime'
 
 const store = useMasterDataStore()
+
+const dateTimePickerDisplayFormat = computed(() => elementDateTimePickerDisplayFormat())
 
 const loading = computed(() => store.loading)
 const orders = computed(() => store.orders)
@@ -356,14 +367,6 @@ const orderStatusInOpsDialog = computed(() => {
   const hasPending = ops.some(op => op.status === 'pending')
   return hasPending ? 'created' : order.status
 })
-
-const formatDate = (date) => {
-  return date ? dayjs(date).format('YYYY-MM-DD') : ''
-}
-
-const formatDateTime = (date) => {
-  return date ? dayjs(date).format('MM-DD HH:mm') : ''
-}
 
 const getPriorityType = (priority) => {
   if (priority <= 3) return 'danger'

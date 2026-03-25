@@ -197,7 +197,7 @@ const passwordRulesRef = computed(() => ({
 const handleUserCommand = (command) => {
   switch (command) {
     case 'profile':
-      ElMessage.info(i18nStore.t('user.profileComingSoon'))
+      router.push('/profile')
       break
     case 'password':
       passwordForm.oldPassword = ''

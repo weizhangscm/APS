@@ -61,7 +61,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useMasterDataStore } from '@/stores/masterData'
-import dayjs from 'dayjs'
+import { formatDisplayDateTime as formatDate } from '@/utils/displayDateTime'
 
 const store = useMasterDataStore()
 
@@ -83,10 +83,6 @@ const form = ref({
 const rules = {
   code: [{ required: true, message: '请输入编码', trigger: 'blur' }],
   name: [{ required: true, message: '请输入名称', trigger: 'blur' }]
-}
-
-const formatDate = (date) => {
-  return date ? dayjs(date).format('YYYY-MM-DD HH:mm') : ''
 }
 
 const handleAdd = () => {

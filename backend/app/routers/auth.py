@@ -5,8 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, List
 import hashlib
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from pydantic import BaseModel, Field
 import secrets
 import base64
 
@@ -18,6 +20,40 @@ security = HTTPBearer(auto_error=False)
 
 # 简单的 token 存储 (生产环境应使用 Redis 或 JWT)
 active_tokens = {}
+
+ALLOWED_DATE_FORMATS: List[str] = [
+    "YYYY-MM-DD",
+    "MM/DD/YYYY",
+    "DD/MM/YYYY",
+    "DD.MM.YYYY",
+    "YYYY/MM/DD",
+    "YYYY年MM月DD日",
+]
+
+ALLOWED_TIME_FORMATS: List[str] = ["24h", "12h"]
+
+
+class ProfileUpdate(BaseModel):
+    full_name: Optional[str] = Field(None, max_length=100)
+    email: Optional[str] = Field(None, max_length=100)
+    department: Optional[str] = Field(None, max_length=100)
+    date_format: Optional[str] = Field(None, max_length=40)
+    time_format: Optional[str] = Field(None, max_length=10)
+    user_timezone: Optional[str] = Field(None, max_length=80)
+
+
+def _user_public_dict(user: models.User) -> dict:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "full_name": user.full_name,
+        "email": user.email,
+        "department": user.department,
+        "date_format": user.date_format,
+        "time_format": user.time_format,
+        "user_timezone": user.user_timezone,
+        "is_admin": user.is_admin,
+    }
 
 def hash_password(password: str) -> str:
     """哈希密码"""
@@ -118,13 +154,7 @@ def login(username: str, password: str, db: Session = Depends(get_db)):
     return {
         "access_token": token,
         "token_type": "bearer",
-        "user": {
-            "id": user.id,
-            "username": user.username,
-            "full_name": user.full_name,
-            "email": user.email,
-            "is_admin": user.is_admin
-        }
+        "user": _user_public_dict(user),
     }
 
 
@@ -140,15 +170,78 @@ def logout(credentials: HTTPAuthorizationCredentials = Depends(security)):
 def get_current_user_info(user: models.User = Depends(require_auth)):
     """获取当前用户信息"""
     return {
-        "id": user.id,
-        "username": user.username,
-        "full_name": user.full_name,
-        "email": user.email,
-        "is_admin": user.is_admin,
+        **_user_public_dict(user),
         "is_active": user.is_active,
         "created_at": user.created_at,
-        "last_login": user.last_login
+        "last_login": user.last_login,
     }
+
+
+@router.patch("/profile")
+def update_profile(
+    body: ProfileUpdate,
+    user: models.User = Depends(require_auth),
+    db: Session = Depends(get_db),
+):
+    """更新个人信息（不含用户名、密码）"""
+    data = body.model_dump(exclude_unset=True)
+
+    if "full_name" in data:
+        data["full_name"] = (data["full_name"] or "").strip() or None
+    if "department" in data:
+        data["department"] = (data["department"] or "").strip() or None
+
+    if "email" in data:
+        email = (data["email"] or "").strip() or None
+        data["email"] = email
+        if email:
+            other = (
+                db.query(models.User)
+                .filter(models.User.email == email, models.User.id != user.id)
+                .first()
+            )
+            if other:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="该邮箱已被其他用户使用",
+                )
+
+    if "date_format" in data:
+        df = (data["date_format"] or "").strip() or None
+        data["date_format"] = df
+        if df and df not in ALLOWED_DATE_FORMATS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="不支持的日期格式",
+            )
+
+    if "time_format" in data:
+        tf = (data["time_format"] or "").strip() or None
+        data["time_format"] = tf
+        if tf and tf not in ALLOWED_TIME_FORMATS:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="不支持的时间格式",
+            )
+
+    if "user_timezone" in data:
+        tz = (data["user_timezone"] or "").strip() or None
+        data["user_timezone"] = tz
+        if tz:
+            try:
+                ZoneInfo(tz)
+            except ZoneInfoNotFoundError:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="无效的时区",
+                )
+
+    for key, value in data.items():
+        setattr(user, key, value)
+
+    db.commit()
+    db.refresh(user)
+    return {"message": "已保存", "user": _user_public_dict(user)}
 
 
 @router.post("/change-password")

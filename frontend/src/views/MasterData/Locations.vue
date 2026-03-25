@@ -61,7 +61,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { MapLocation, Plus } from '@element-plus/icons-vue'
 import { masterDataApi } from '@/api'
 import { useI18nStore } from '@/stores/i18n'
-import dayjs from 'dayjs'
+import { formatDisplayDateTime as formatDate } from '@/utils/displayDateTime'
 
 const i18nStore = useI18nStore()
 const t = (key) => i18nStore.t(key)
@@ -83,7 +83,6 @@ const rules = computed(() => ({
   code: [{ required: true, message: t('locations.enterCode'), trigger: 'blur' }]
 }))
 
-const formatDate = (date) => (date ? dayjs(date).format('YYYY-MM-DD HH:mm') : '')
 
 async function load() {
   loading.value = true
