@@ -5,19 +5,27 @@ import os
 from typing import Optional
 from pathlib import Path
 
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    load_dotenv = None
+
+
+# 优先加载 backend/.env（如果存在），用于本地开发配置
+BASE_DIR = Path(__file__).resolve().parent.parent
+if load_dotenv is not None:
+    load_dotenv(BASE_DIR / ".env", override=False)
+
 
 class Config:
     """应用配置类"""
     
     # OpenAI 配置（兼容多种 AI 模型）
     # 首先尝试从环境变量读取，如果没有则使用默认值（开发环境）
-    OPENAI_API_KEY: Optional[str] = (
-        os.environ.get("OPENAI_API_KEY", "").strip() or 
-        "sk-kpTnRoj9FgVj5u0vEh0IYAGgjs1D1XZs7vi2ROAomLKwGhzv"  # Gemini API Key
-    )
-    # 使用 Gemini 3 Pro Preview
-    OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gemini-3-pro-preview").strip()
-    OPENAI_BASE_URL: Optional[str] = os.environ.get("OPENAI_BASE_URL", "").strip() or "https://xiaoai.plus/v1"
+    OPENAI_API_KEY: Optional[str] = os.environ.get("OPENAI_API_KEY", "").strip()
+    # 默认使用 Gemini 3 Flash Preview
+    OPENAI_MODEL: str = os.environ.get("OPENAI_MODEL", "gemini-3-flash-preview").strip()
+    OPENAI_BASE_URL: Optional[str] = os.environ.get("OPENAI_BASE_URL", "").strip() or "https://api.chataiapi.com/v1"
     
     # LLM 对话配置
     MAX_CONVERSATION_HISTORY: int = 20  # 最大保留消息数

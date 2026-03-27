@@ -3,15 +3,16 @@ Gemini API 完整功能测试
 """
 import sys
 import io
+import os
 from openai import OpenAI
 
 # 设置 UTF-8 编码（Windows 兼容）
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Gemini API 配置
-API_KEY = "sk-kpTnRoj9FgVj5u0vEh0IYAGgjs1D1XZs7vi2ROAomLKwGhzv"
-BASE_URL = "https://xiaoai.plus/v1"
-MODEL = "gemini-3-pro-preview"
+API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.chataiapi.com/v1").strip()
+MODEL = os.environ.get("OPENAI_MODEL", "gemini-3-flash-preview").strip()
 
 
 def test_basic_chat():
@@ -200,9 +201,12 @@ def main():
     print("=" * 60)
     print("Gemini API 完整功能测试")
     print("=" * 60)
+    if not API_KEY:
+        print("[ERROR] OPENAI_API_KEY 未设置")
+        return False
     print(f"API Base URL: {BASE_URL}")
     print(f"Model: {MODEL}")
-    print(f"API Key: {API_KEY[:10]}...{API_KEY[-10:]}")
+    print("API Key: configured")
     print("=" * 60)
     
     tests = [
@@ -235,7 +239,7 @@ def main():
     if failed == 0:
         print("\n[SUCCESS] 所有测试通过！Gemini API 已成功集成。")
         print("\n推荐配置:")
-        print(f"  OPENAI_API_KEY: {API_KEY}")
+        print("  OPENAI_API_KEY: (from environment)")
         print(f"  OPENAI_BASE_URL: {BASE_URL}")
         print(f"  OPENAI_MODEL: {MODEL}")
     else:

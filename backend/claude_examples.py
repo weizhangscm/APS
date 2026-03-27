@@ -2,12 +2,13 @@
 Claude API 使用示例
 演示如何在 Python 代码中使用 Claude API
 """
+import os
 from openai import OpenAI
 
 # API 配置
-API_KEY = "sk-VwCqIndGZuUtYBd1zmtcbetWFfomPO0thZAN5XeXU7BjghhG"
-BASE_URL = "https://api.chataiapi.com/v1"
-MODEL = "claude-sonnet-4-6"
+API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.chataiapi.com/v1").strip()
+MODEL = os.environ.get("OPENAI_MODEL", "claude-sonnet-4-6").strip()
 
 
 def example_1_simple_chat():
@@ -281,6 +282,10 @@ def example_6_streaming():
 
 def main():
     """运行所有示例"""
+    if not API_KEY:
+        print("[ERROR] OPENAI_API_KEY 未设置")
+        return
+
     print("="*60)
     print("Claude API 使用示例集合")
     print("="*60)

@@ -3,20 +3,24 @@
 """
 import sys
 import io
+import os
 from openai import OpenAI
 
 # 设置 UTF-8 编码（Windows 兼容）
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # API 配置
-API_KEY = "sk-VwCqIndGZuUtYBd1zmtcbetWFfomPO0thZAN5XeXU7BjghhG"
-BASE_URL = "https://api.chataiapi.com/v1"
+API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.chataiapi.com/v1").strip()
 
 def list_models():
     """列出所有可用的模型"""
     print("=" * 60)
     print("查询可用的模型列表")
     print("=" * 60)
+    if not API_KEY:
+        print("[ERROR] OPENAI_API_KEY 未设置")
+        return False
     print(f"API Base URL: {BASE_URL}")
     print("-" * 60)
     

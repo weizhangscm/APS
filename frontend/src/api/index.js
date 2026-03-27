@@ -197,7 +197,8 @@ export const chatbotApi = {
     if (conversationId) {
       payload.conversation_id = conversationId
     }
-    return api.post('/chatbot/chat', payload)
+    // 聊天请求可能触发两段式 LLM 调用（含 tool call），单独放宽超时
+    return api.post('/chatbot/chat', payload, { timeout: 300000 })
   },
   getHistory: () => api.get('/chatbot/history')
 }

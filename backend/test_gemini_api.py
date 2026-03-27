@@ -3,25 +3,19 @@
 """
 import sys
 import io
+import os
 from openai import OpenAI
 
 # 设置 UTF-8 编码（Windows 兼容）
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # Gemini API 配置
-API_KEY = "sk-kpTnRoj9FgVj5u0vEh0IYAGgjs1D1XZs7vi2ROAomLKwGhzv"
-BASE_URL = "https://xiaoai.plus/v1"
+API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.chataiapi.com/v1").strip()
+TARGET_MODEL = os.environ.get("OPENAI_MODEL", "gemini-3-flash-preview").strip()
 
 # 常见的 Gemini 模型名称
-MODELS_TO_TRY = [
-    "gemini-3-pro-preview",
-    "gemini-3-pro",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-pro",
-    "gemini-3.1-pro",
-    "gemini-3.1-flash",
-]
+MODELS_TO_TRY = [TARGET_MODEL]
 
 
 def find_available_model(client):
@@ -57,6 +51,9 @@ def test_gemini_api():
     print("=" * 60)
     print("测试 Gemini API 连接")
     print("=" * 60)
+    if not API_KEY:
+        print("[ERROR] OPENAI_API_KEY 未设置")
+        return None
     print(f"API Base URL: {BASE_URL}")
     print(f"API Key: {API_KEY[:20]}...{API_KEY[-10:]}")
     print("-" * 60)

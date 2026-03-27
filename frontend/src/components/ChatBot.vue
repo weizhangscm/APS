@@ -227,7 +227,11 @@ async function sendMessage() {
       schedulingStore.requestScheduleRefresh()
     }
   } catch (err) {
-    const msg = err.response?.data?.detail ?? err.message ?? t('chatbot.sendFailed')
+    let msg = err.response?.data?.detail ?? err.message ?? t('chatbot.sendFailed')
+    const rawMsg = String(err?.message || '').toLowerCase()
+    if (err?.code === 'ECONNABORTED' || rawMsg.includes('timeout')) {
+      msg = t('chatbot.sendFailed') + '（请求超时，请稍后重试）'
+    }
     messages.value.push({
       role: 'assistant',
       content: t('chatbot.errorPrefix') + msg,

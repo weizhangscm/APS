@@ -6,11 +6,18 @@ Write-Host "  APS Backend Server Startup Script  " -ForegroundColor Cyan
 Write-Host "======================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Set environment variables for AI Pilot (optional)
-$env:OPENAI_API_KEY="sk-B3G5StfWpvvV2w4ScGlbmAI2hR6l0ypvUfA43RBMHBHqPJ7Z"
-$env:OPENAI_MODEL="gpt-4o"
+# Check required environment variable from system
+if (-not $env:OPENAI_API_KEY) {
+    Write-Host "[ERROR] OPENAI_API_KEY is not set in system environment." -ForegroundColor Red
+    Write-Host "        Please set it in system/user environment variables and reopen terminal." -ForegroundColor Yellow
+    exit 1
+}
 
-Write-Host "[1/3] Environment variables set" -ForegroundColor Green
+# Apply safe defaults for optional variables
+if (-not $env:OPENAI_BASE_URL) { $env:OPENAI_BASE_URL = "https://api.chataiapi.com/v1" }
+if (-not $env:OPENAI_MODEL) { $env:OPENAI_MODEL = "gemini-3-flash-preview" }
+
+Write-Host "[1/3] Environment variables loaded" -ForegroundColor Green
 Write-Host "      OPENAI_API_KEY = configured" -ForegroundColor Gray
 Write-Host ""
 

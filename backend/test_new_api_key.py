@@ -3,14 +3,15 @@
 """
 import sys
 import io
+import os
 from openai import OpenAI
 
 # 设置 UTF-8 编码
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 # 新的 API 配置
-API_KEY = "sk-VwCqIndGZuUtYBd1zmtcbetWFfomPO0thZAN5XeXU7BjghhG"
-BASE_URL = "https://api.chataiapi.com/v1"
+API_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+BASE_URL = os.environ.get("OPENAI_BASE_URL", "https://api.chataiapi.com/v1").strip()
 
 # 常见模型列表
 TEST_MODELS = [
@@ -33,7 +34,10 @@ def test_models():
     print("=" * 60)
     print("测试新 API Key 支持的模型")
     print("=" * 60)
-    print(f"API Key: {API_KEY[:15]}...{API_KEY[-10:]}")
+    if not API_KEY:
+        print("[ERROR] OPENAI_API_KEY 未设置")
+        return []
+    print("API Key: configured")
     print(f"Base URL: {BASE_URL}")
     print("-" * 60)
     
