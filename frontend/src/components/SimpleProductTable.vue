@@ -100,7 +100,7 @@
               :class="[getTaskClass(item), { 'is-draggable': canDrag(item), 'is-dragging': draggingItem?.id === item.id }]"
               :style="getTaskBarStyle(item)"
               :title="`${item.text}\n开始: ${formatDateTime(item.start_date)}\n结束: ${formatDateTime(item.end_date)}`"
-              @mousedown.prevent="canDrag(item) && onTaskBarMouseDown($event, item)"
+              @pointerdown.prevent="canDrag(item) && onTaskBarPointerDown($event, item)"
             >
             </div>
           </div>
@@ -149,6 +149,7 @@ const draggingItem = ref(null)
 const dragPreviewLeft = ref(null)
 
 let isScrolling = false
+let dragShiftKey = false
 
 function canDrag(item) {
   if (!item || item.isGroup) return false
@@ -183,11 +184,12 @@ function getTaskBarStyle(item) {
   return base
 }
 
-function onTaskBarMouseDown(e, item) {
-  if (!canDrag(item) || !rightContentRef.value || timeAxis.value.length === 0) return
-  const rect = rightContentRef.value.getBoundingClientRect()
-  const startX = e.clientX - rect.left + rightContentRef.value.scrollLeft
-  const startLeft = timeAxis.value[0].date ? (new Date(item.start_date) - timeAxis.value[0].date) / (24 * 60 * 60 * 1000) * dayWidth.value : 0
+function onTaskBarPointerDown(e, item) {
+  if (e.button !== 0 || !canDrag(item) || !rightContentRef.value || timeAxis.value.length === 0) return
+  dragShiftKey = !!e.shiftKey
+  const startLeft = timeAxis.value[0].date
+    ? (new Date(item.start_date) - timeAxis.value[0].date) / (24 * 60 * 60 * 1000) * dayWidth.value
+    : 0
 
   draggingItem.value = item
   dragPreviewLeft.value = startLeft
@@ -207,8 +209,8 @@ function onTaskBarMouseDown(e, item) {
     const leftPx = dragPreviewLeft.value != null ? dragPreviewLeft.value : 0
     draggingItem.value = null
     dragPreviewLeft.value = null
-    document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp, true)
 
     const newStart = pixelOffsetToDate(leftPx)
     if (!newStart) return
@@ -226,13 +228,15 @@ function onTaskBarMouseDown(e, item) {
     emit('task-dragged', {
       operationId: itemToEmit.operation_id,
       newStart: clampedStart,
-      resourceId: itemToEmit.resource_id ?? null,
-      originalStart: new Date(itemToEmit.start_date)
+      resourceId: null,
+      originalStart: new Date(itemToEmit.start_date),
+      moveWholeOrder: dragShiftKey
     })
+    dragShiftKey = false
   }
 
-  document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp, true)
 }
 
 // 左侧表格纵向滚动时，同步右侧甘特条区域
@@ -923,6 +927,7 @@ const formatDateTime = (dateStr) => (dateStr ? formatDisplayDateTime(dateStr) : 
 
   &.is-draggable {
     cursor: grab;
+    touch-action: none;
   }
 
   &.is-dragging {

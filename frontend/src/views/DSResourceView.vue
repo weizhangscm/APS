@@ -24,7 +24,7 @@
         <el-table-column prop="location" :label="t('dsResource.location')" min-width="80" align="center" />
         <el-table-column :label="t('dsResource.workCenter')" min-width="100">
           <template #default="{ row }">
-            {{ getWorkCenterName(row.work_center_id) }}
+            {{ getWorkCenterCode(row.work_center_id) }}
           </template>
         </el-table-column>
         <el-table-column prop="production_hours" :label="t('dsResource.productionHours')" min-width="110" align="right">
@@ -63,14 +63,14 @@
         <el-descriptions-item :label="t('dsResource.resourceCode')">{{ currentResource.code }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.resourceName')">{{ currentResource.name }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.location')">{{ currentResource.location }}</el-descriptions-item>
-        <el-descriptions-item :label="t('dsResource.workCenter')">{{ getWorkCenterName(currentResource.work_center_id) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsResource.workCenter')">{{ getWorkCenterCode(currentResource.work_center_id) }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.workCenterDesc')">{{ getWorkCenterDescription(currentResource.work_center_id) }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.start')">{{ currentResource.start_time }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.end')">{{ currentResource.end_time }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.restStart')">{{ formatHm(currentResource.operating_rest_start) }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.restEnd')">{{ formatHm(currentResource.operating_rest_end) }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.breakPeriod')">{{ currentResource.break_time }}</el-descriptions-item>
-        <el-descriptions-item :label="t('dsResource.utilizationPercent')">{{ currentResource.utilization_percent.toFixed(3) }}</el-descriptions-item>
+        <el-descriptions-item :label="t('dsResource.utilizationPercent')">{{ formatUtilizationPercent(currentResource.utilization_percent) }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.productionHours')">{{ currentResource.production_hours.toFixed(2) }}</el-descriptions-item>
         <el-descriptions-item :label="t('dsResource.capacity')">
           {{ currentResource.capacity !== null && currentResource.capacity !== undefined && currentResource.capacity !== '' ? currentResource.capacity.toFixed(3) : '-' }}
@@ -159,8 +159,8 @@
           />
         </el-form-item>
         <div class="form-tip">{{ t('dsResource.breakPeriodAutoHint') }}</div>
-        <el-form-item :label="t('dsResource.efficiency')">
-          <el-input-number v-model="form.efficiency" :min="0" :max="2" :step="0.1" :precision="2" style="width: 100%" />
+        <el-form-item :label="t('dsResource.utilizationPercent')">
+          <el-input-number v-model="form.utilization_percent" :min="0" :max="200" :step="1" :precision="1" style="width: 100%" />
         </el-form-item>
         <el-form-item :label="t('dsResource.dailyCapacity')">
           <el-input-number v-model="form.capacity_per_day" :min="0" :step="1" :precision="1" style="width: 100%" />
@@ -196,6 +196,11 @@ function formatHm(hm) {
   return formatDisplayTimeFromHm(String(hm).trim())
 }
 
+function formatUtilizationPercent(v) {
+  if (v == null || v === '') return '—'
+  return `${Number(v).toFixed(1)}%`
+}
+
 const i18nStore = useI18nStore()
 const dsFiltersStore = useDSFiltersStore()
 const t = (key) => i18nStore.t(key)
@@ -228,7 +233,7 @@ const form = ref({
   operating_end: '',
   operating_rest_start: '',
   operating_rest_end: '',
-  efficiency: 1.0,
+  utilization_percent: 100,
   capacity_per_day: 8.0,
   description: ''
 })
@@ -254,10 +259,10 @@ const getResourceMode = (capacity) => {
     : t('dsResource.multiMode')
 }
 
-// 获取工作中心名称
-const getWorkCenterName = (workCenterId) => {
+// 工作中心列/详情：与导入模板「工作中心编码」一致，显示 code
+const getWorkCenterCode = (workCenterId) => {
   const wc = workCenters.value.find(w => w.id === workCenterId)
-  return wc ? wc.name : '-'
+  return wc ? wc.code : '-'
 }
 
 // 获取工作中心描述
@@ -326,9 +331,9 @@ const loadResources = async () => {
           ? Number(resource.production_hours)
           : calcProductionHours(start_time, end_time, break_time)
       const utilization_percent =
-        resource.utilization_percent != null
+        resource.utilization_percent != null && resource.utilization_percent !== ''
           ? Number(resource.utilization_percent)
-          : (resource.efficiency || 1) * 100
+          : 100
       return {
         id: resource.id,
         code: resource.code,
@@ -353,7 +358,6 @@ const loadResources = async () => {
         timezone: resource.timezone || 'CET',
         factory_calendar: resource.factory_calendar || (resource.work_center?.code === 'CN' ? 'CN' : '01'),
         planning_group: resource.planning_group || 'A',
-        efficiency: resource.efficiency,
         capacity_per_day: resource.capacity_per_day,
         description: resource.description
       }
@@ -393,7 +397,7 @@ const handleAdd = () => {
     operating_end: '18:00',
     operating_rest_start: '',
     operating_rest_end: '',
-    efficiency: 1.0,
+    utilization_percent: 100,
     capacity_per_day: 8.0,
     description: ''
   }
@@ -413,7 +417,7 @@ const handleEdit = (row) => {
     operating_end: row.operating_end || '',
     operating_rest_start: row.operating_rest_start || '',
     operating_rest_end: row.operating_rest_end || '',
-    efficiency: row.efficiency || 1.0,
+    utilization_percent: row.utilization_percent != null ? Number(row.utilization_percent) : 100,
     capacity_per_day: row.capacity_per_day || 8.0,
     description: row.description || ''
   }
@@ -452,7 +456,7 @@ const handleSubmit = async () => {
       operating_end: form.value.operating_end?.trim() || null,
       operating_rest_start: form.value.operating_rest_start?.trim() || null,
       operating_rest_end: form.value.operating_rest_end?.trim() || null,
-      efficiency: form.value.efficiency,
+      utilization_percent: form.value.utilization_percent,
       capacity_per_day: form.value.capacity_per_day,
       description: form.value.description?.trim() ? form.value.description.trim() : null
     }

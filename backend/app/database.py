@@ -322,6 +322,76 @@ def _sqlite_resources_work_center_nullable():
         conn.close()
 
 
+def _sqlite_resources_drop_efficiency_column():
+    """删除 resources.efficiency；utilization_percent 为空时用 efficiency*100 回填。"""
+    if not os.path.isfile(DB_PATH):
+        return
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='resources'"
+        )
+        if not cur.fetchone():
+            return
+        cur.execute("PRAGMA table_info(resources)")
+        rows = list(cur.fetchall())
+        if not any(r[1] == "efficiency" for r in rows):
+            return
+        try:
+            cur.execute(
+                "UPDATE resources SET utilization_percent = ROUND(CAST(efficiency AS REAL) * 100.0, 6) "
+                "WHERE utilization_percent IS NULL AND efficiency IS NOT NULL"
+            )
+        except sqlite3.OperationalError:
+            pass
+        conn.commit()
+
+        cur.execute("PRAGMA table_info(resources)")
+        rows = list(cur.fetchall())
+        rows_wo = [r for r in rows if r[1] != "efficiency"]
+        cur.execute(
+            "SELECT sql FROM sqlite_master WHERE type='index' AND tbl_name='resources' AND sql IS NOT NULL"
+        )
+        index_sqls = [r[0] for r in cur.fetchall() if r[0]]
+        colnames = ", ".join(f'"{r[1]}"' for r in rows_wo)
+
+        def coldef(r):
+            _cid, name, ctype, notnull, dflt, pk = r
+            ctype = ctype or "TEXT"
+            if name == "id" and pk == 1:
+                return '"id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT'
+            parts = [f'"{name}"', ctype]
+            if pk == 1:
+                parts.append("PRIMARY KEY")
+            if notnull == 1:
+                parts.append("NOT NULL")
+            if dflt is not None and not (name == "id" and pk == 1):
+                parts.append(f"DEFAULT {dflt}")
+            return " ".join(parts)
+
+        defs = ", ".join(coldef(r) for r in rows_wo)
+        cur.execute("PRAGMA foreign_keys=OFF")
+        cur.execute("DROP TABLE IF EXISTS resources__eff_drop")
+        cur.execute(f"CREATE TABLE resources__eff_drop ({defs})")
+        cur.execute(
+            f"INSERT INTO resources__eff_drop ({colnames}) SELECT {colnames} FROM resources"
+        )
+        cur.execute("DROP TABLE resources")
+        cur.execute("ALTER TABLE resources__eff_drop RENAME TO resources")
+        for sql in index_sqls:
+            try:
+                cur.execute(sql)
+            except sqlite3.OperationalError:
+                pass
+        conn.commit()
+    except Exception as ex:
+        conn.rollback()
+        print(f"resources drop efficiency column migration skipped: {ex}")
+    finally:
+        conn.close()
+
+
 def init_db():
     """Initialize database tables"""
     from . import models
@@ -332,3 +402,4 @@ def init_db():
     _bootstrap_location_catalog()
     _sqlite_routing_operations_work_center_nullable()
     _sqlite_resources_work_center_nullable()
+    _sqlite_resources_drop_efficiency_column()

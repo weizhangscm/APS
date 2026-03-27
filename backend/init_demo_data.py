@@ -67,32 +67,32 @@ def create_demo_data(force=False):
         # ==================== 资源 ====================
         resources = [
             # 机加工车间资源
-            models.Resource(code="M001", name="CNC机床-1", work_center_id=work_centers[0].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="M002", name="CNC机床-2", work_center_id=work_centers[0].id, capacity_per_day=8.0, efficiency=0.95),
-            models.Resource(code="M003", name="CNC机床-3", work_center_id=work_centers[0].id, capacity_per_day=8.0, efficiency=0.98),
-            models.Resource(code="M004", name="车床-1", work_center_id=work_centers[0].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="M005", name="车床-2", work_center_id=work_centers[0].id, capacity_per_day=8.0, efficiency=0.95),
-            models.Resource(code="M006", name="铣床-1", work_center_id=work_centers[0].id, capacity_per_day=8.0, efficiency=1.0),
+            models.Resource(code="M001", name="CNC机床-1", work_center_id=work_centers[0].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="M002", name="CNC机床-2", work_center_id=work_centers[0].id, capacity_per_day=8.0, utilization_percent=95.0),
+            models.Resource(code="M003", name="CNC机床-3", work_center_id=work_centers[0].id, capacity_per_day=8.0, utilization_percent=98.0),
+            models.Resource(code="M004", name="车床-1", work_center_id=work_centers[0].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="M005", name="车床-2", work_center_id=work_centers[0].id, capacity_per_day=8.0, utilization_percent=95.0),
+            models.Resource(code="M006", name="铣床-1", work_center_id=work_centers[0].id, capacity_per_day=8.0, utilization_percent=100.0),
             # 钣金车间资源
-            models.Resource(code="S001", name="冲床-1", work_center_id=work_centers[1].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="S002", name="折弯机-1", work_center_id=work_centers[1].id, capacity_per_day=8.0, efficiency=0.95),
-            models.Resource(code="S003", name="焊接工位-1", work_center_id=work_centers[1].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="S004", name="焊接工位-2", work_center_id=work_centers[1].id, capacity_per_day=8.0, efficiency=0.9),
+            models.Resource(code="S001", name="冲床-1", work_center_id=work_centers[1].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="S002", name="折弯机-1", work_center_id=work_centers[1].id, capacity_per_day=8.0, utilization_percent=95.0),
+            models.Resource(code="S003", name="焊接工位-1", work_center_id=work_centers[1].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="S004", name="焊接工位-2", work_center_id=work_centers[1].id, capacity_per_day=8.0, utilization_percent=90.0),
             # 装配车间资源
-            models.Resource(code="A001", name="装配工位-1", work_center_id=work_centers[2].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="A002", name="装配工位-2", work_center_id=work_centers[2].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="A003", name="装配工位-3", work_center_id=work_centers[2].id, capacity_per_day=8.0, efficiency=0.9),
-            models.Resource(code="A004", name="装配工位-4", work_center_id=work_centers[2].id, capacity_per_day=8.0, efficiency=0.95),
+            models.Resource(code="A001", name="装配工位-1", work_center_id=work_centers[2].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="A002", name="装配工位-2", work_center_id=work_centers[2].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="A003", name="装配工位-3", work_center_id=work_centers[2].id, capacity_per_day=8.0, utilization_percent=90.0),
+            models.Resource(code="A004", name="装配工位-4", work_center_id=work_centers[2].id, capacity_per_day=8.0, utilization_percent=95.0),
             # 喷涂车间资源
-            models.Resource(code="C001", name="喷涂线-1", work_center_id=work_centers[3].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="C002", name="喷涂线-2", work_center_id=work_centers[3].id, capacity_per_day=8.0, efficiency=0.95),
+            models.Resource(code="C001", name="喷涂线-1", work_center_id=work_centers[3].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="C002", name="喷涂线-2", work_center_id=work_centers[3].id, capacity_per_day=8.0, utilization_percent=95.0),
             # 检测车间资源
-            models.Resource(code="T001", name="检测设备-1", work_center_id=work_centers[4].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="T002", name="检测设备-2", work_center_id=work_centers[4].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="T003", name="检测设备-3", work_center_id=work_centers[4].id, capacity_per_day=8.0, efficiency=0.95),
+            models.Resource(code="T001", name="检测设备-1", work_center_id=work_centers[4].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="T002", name="检测设备-2", work_center_id=work_centers[4].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="T003", name="检测设备-3", work_center_id=work_centers[4].id, capacity_per_day=8.0, utilization_percent=95.0),
             # 包装车间资源
-            models.Resource(code="P001", name="包装线-1", work_center_id=work_centers[5].id, capacity_per_day=8.0, efficiency=1.0),
-            models.Resource(code="P002", name="包装线-2", work_center_id=work_centers[5].id, capacity_per_day=8.0, efficiency=0.95),
+            models.Resource(code="P001", name="包装线-1", work_center_id=work_centers[5].id, capacity_per_day=8.0, utilization_percent=100.0),
+            models.Resource(code="P002", name="包装线-2", work_center_id=work_centers[5].id, capacity_per_day=8.0, utilization_percent=95.0),
         ]
         
         for res in resources:

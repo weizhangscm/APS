@@ -80,6 +80,7 @@ def reschedule_operation(
     - **operation_id**: 工序ID
     - **new_start**: 新的开始时间
     - **new_resource_id**: 新的资源ID（可选，不填则保持原资源）
+    - **move_whole_order**: 为 True 时整单已排程工序同时平移（Shift+拖拽）
     """
     engine = SchedulingEngine(db)
     # 这里再加一层保护，确保无论引擎内部发生什么错误，都不会返回 HTTP 500
@@ -87,7 +88,8 @@ def reschedule_operation(
         return engine.reschedule_operation(
             operation_id=request.operation_id,
             new_start=request.new_start,
-            new_resource_id=request.new_resource_id
+            new_resource_id=request.new_resource_id,
+            move_whole_order=request.move_whole_order,
         )
     except Exception as e:
         # 最终兜底：返回结构化业务错误

@@ -17,7 +17,7 @@
         <el-table-column prop="name" label="名称" min-width="120" />
         <el-table-column label="工作中心" min-width="120">
           <template #default="{ row }">
-            {{ row.work_center?.name || '-' }}
+            {{ row.work_center?.code || '-' }}
           </template>
         </el-table-column>
         <el-table-column prop="location" label="位置" min-width="90" align="center" />
@@ -26,9 +26,9 @@
             {{ row.capacity_per_day.toFixed(1) }}
           </template>
         </el-table-column>
-        <el-table-column prop="efficiency" label="效率" min-width="80" align="right">
+        <el-table-column prop="utilization_percent" label="利用效率(%)" min-width="110" align="right">
           <template #default="{ row }">
-            {{ (row.efficiency * 100).toFixed(0) }}%
+            {{ formatUtilization(row.utilization_percent) }}
           </template>
         </el-table-column>
         <el-table-column prop="description" label="描述" min-width="150" show-overflow-tooltip />
@@ -61,7 +61,7 @@
             <el-option 
               v-for="wc in workCenters" 
               :key="wc.id" 
-              :label="wc.name" 
+              :label="`${wc.code} — ${wc.name}`" 
               :value="wc.id" 
             />
           </el-select>
@@ -79,8 +79,8 @@
         <el-form-item label="日产能(小时)" prop="capacity_per_day">
           <el-input-number v-model="form.capacity_per_day" :min="0" :max="24" :precision="1" />
         </el-form-item>
-        <el-form-item label="效率" prop="efficiency">
-          <el-slider v-model="form.efficiency" :min="0" :max="2" :step="0.1" show-input />
+        <el-form-item label="利用效率(%)" prop="utilization_percent">
+          <el-input-number v-model="form.utilization_percent" :min="0" :max="200" :step="1" :precision="1" style="width: 100%" />
         </el-form-item>
         <el-form-item label="描述">
           <el-input v-model="form.description" type="textarea" rows="3" placeholder="请输入描述" />
@@ -113,13 +113,18 @@ const editId = ref(null)
 const submitting = ref(false)
 const formRef = ref(null)
 
+function formatUtilization(v) {
+  if (v == null || v === '') return '—'
+  return `${Number(v).toFixed(1)}%`
+}
+
 const form = ref({
   code: '',
   name: '',
   work_center_id: null,
   location: '',
   capacity_per_day: 8.0,
-  efficiency: 1.0,
+  utilization_percent: 100,
   description: ''
 })
 
@@ -131,7 +136,7 @@ const rules = {
 const handleAdd = () => {
   isEdit.value = false
   editId.value = null
-  form.value = { code: '', name: '', work_center_id: null, location: '', capacity_per_day: 8.0, efficiency: 1.0, description: '' }
+  form.value = { code: '', name: '', work_center_id: null, location: '', capacity_per_day: 8.0, utilization_percent: 100, description: '' }
   dialogVisible.value = true
 }
 
@@ -144,7 +149,7 @@ const handleEdit = (row) => {
     work_center_id: row.work_center_id ?? null,
     location: row.location || '',
     capacity_per_day: row.capacity_per_day,
-    efficiency: row.efficiency,
+    utilization_percent: row.utilization_percent != null ? Number(row.utilization_percent) : 100,
     description: row.description || ''
   }
   dialogVisible.value = true
@@ -176,7 +181,7 @@ const handleSubmit = async () => {
       work_center_id: form.value.work_center_id ?? null,
       location: form.value.location?.trim() ? form.value.location.trim() : null,
       capacity_per_day: form.value.capacity_per_day,
-      efficiency: form.value.efficiency,
+      utilization_percent: form.value.utilization_percent,
       description: form.value.description?.trim() ? form.value.description.trim() : null
     }
     if (isEdit.value) {

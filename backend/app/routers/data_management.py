@@ -134,20 +134,20 @@ FIELD_SPECS: Dict[str, List[Tuple[str, str, str, Tuple[str, ...]]]] = {
         ("code", "资源编码", "Resource code", ("resource_code",)),
         ("name", "资源名称", "Resource name", ()),
         ("work_center_code", "工作中心编码", "Work center code", ("wc_code",)),
+        (
+            "work_center_description",
+            "工作中心描述",
+            "Work center description",
+            ("wc_description", "work_center_desc"),
+        ),
         ("location", "位置", "Location", ()),
         ("operating_start", "开始", "Start", ("start_time", "start")),
         ("operating_end", "结束", "End", ("end_time", "end")),
         ("operating_rest_start", "休息开始", "Rest start", ("rest_start",)),
         ("operating_rest_end", "休息结束", "Rest end", ("rest_end",)),
-        ("operating_break", "休息时段", "Break period", ("break_time", "break_period")),
         ("utilization_percent", "利用效率(%)", "Utilization %", ("utilization",)),
-        ("production_hours", "生产时间(小时)", "Production hours (h)", ()),
-        ("capacity_value", "能力值", "Capacity value", ("capacity",)),
         ("finite_planning", "有限计划", "Finite planning", ()),
         ("is_bottleneck", "瓶颈资源", "Bottleneck", ()),
-        ("efficiency", "效率系数", "Efficiency", ()),
-        ("capacity_per_day", "每日产能(小时)", "Capacity per day (h)", ("daily_capacity",)),
-        ("timezone", "时区", "Timezone", ()),
         ("factory_calendar", "工厂日历", "Factory calendar", ()),
         ("planning_group", "计划组", "Planning group", ()),
         ("description", "描述", "Description", ()),
@@ -164,7 +164,6 @@ FIELD_SPECS: Dict[str, List[Tuple[str, str, str, Tuple[str, ...]]]] = {
         ("end_time", "结束时间", "End time", ()),
         ("break_start_time", "休息开始", "Rest start", ("rest_start",)),
         ("break_end_time", "休息结束", "Rest end", ("rest_end",)),
-        ("break_time", "休息(分钟)", "Break (min)", ("break",)),
         ("location", "位置", "Location", ()),
     ],
     "products": [
@@ -232,9 +231,225 @@ FIELD_SPECS: Dict[str, List[Tuple[str, str, str, Tuple[str, ...]]]] = {
         ("earliest_start", "最早开工", "Earliest start", ()),
         ("priority", "优先级", "Priority", ()),
         ("order_type", "订单类型", "Order type", ()),
+        ("location", "位置", "Location", ()),
         ("description", "描述", "Description", ()),
     ],
 }
+
+# 含「字段类型/长度」「字段说明」两行的模板（表头下第 2、3 行）；导入时按首列匹配以跳过
+TEMPLATE_DOC_ROW_TYPES: frozenset = frozenset(
+    {
+        "resources",
+        "shifts",
+        "products",
+        "routings",
+        "setup_groups",
+        "product_setup_groups",
+        "setup_matrix",
+        "production_orders",
+    }
+)
+
+# internal_key -> (类型长度-zh, 类型长度-en, 说明-zh, 说明-en)，顺序须与 FIELD_SPECS[data_type] 一致
+TEMPLATE_FIELD_META: Dict[str, Dict[str, Tuple[str, str, str, str]]] = {
+    "resources": {
+        "code": ("文本(≤50)", "Text (max 50)", "资源唯一编码；新增时不可重复", "Unique resource code; must not duplicate on create"),
+        "name": ("文本(≤100)", "Text (max 100)", "资源显示名称", "Display name of the resource"),
+        "work_center_code": (
+            "文本(≤50)",
+            "Text (max 50)",
+            "可选；须与主数据一致；不存在时将按本行自动创建工作中心",
+            "Optional; must match master data, or a work center will be created from this row",
+        ),
+        "work_center_description": (
+            "长文本(可空，无字符上限)",
+            "Long text (optional, unlimited)",
+            "自动创建工作中心时写入名称与描述；已存在的工作中心不会被本列覆盖",
+            "Used as name/description when auto-creating WC; does not overwrite existing WCs",
+        ),
+        "location": ("文本(≤50)", "Text (max 50)", "可选；须存在于位置主数据", "Optional; must exist in location master data"),
+        "operating_start": ("文本(≤30)", "Text (max 30)", "作业开始时间，如 09:00:00", "Operating day start, e.g. 09:00:00"),
+        "operating_end": ("文本(≤30)", "Text (max 30)", "作业结束时间", "Operating day end time"),
+        "operating_rest_start": ("文本(≤30)", "Text (max 30)", "休息时段开始，可选", "Rest window start (optional)"),
+        "operating_rest_end": ("文本(≤30)", "Text (max 30)", "休息时段结束，可选", "Rest window end (optional)"),
+        "utilization_percent": (
+            "浮点数(双精度)，建议0–200",
+            "Float (double), suggest 0–200",
+            "利用效率(%)，建议 0–200；100 表示名义 100%",
+            "Utilization %, suggest 0–200; 100 = nominal 100%",
+        ),
+        "finite_planning": (
+            "布尔(≤10字符)",
+            "Boolean (≤10 chars)",
+            "有限计划：是/否/1/0",
+            "Finite capacity planning flag",
+        ),
+        "is_bottleneck": (
+            "布尔(≤10字符)",
+            "Boolean (≤10 chars)",
+            "是否瓶颈资源",
+            "Bottleneck resource flag",
+        ),
+        "factory_calendar": ("文本(≤50)", "Text (max 50)", "工厂日历代码", "Factory calendar code"),
+        "planning_group": ("文本(≤50)", "Text (max 50)", "计划组", "Planning group"),
+        "description": (
+            "长文本(无字符上限)",
+            "Long text (unlimited)",
+            "资源备注（不参与排程计算）",
+            "Free-text notes (not used in scheduling logic)",
+        ),
+    },
+    "shifts": {
+        "resource_code": ("文本(≤50)", "Text (max 50)", "须存在于资源主数据", "Must match resource code"),
+        "shift_code": ("文本(≤50)", "Text (max 50)", "同一资源下班次编码唯一", "Unique per resource"),
+        "shift_name": ("文本(≤100)", "Text (max 100)", "班次名称", "Shift display name"),
+        "start_time": ("文本(≤10)", "Text (max 10)", "开始时间，如 08:00", "Start time, e.g. 08:00"),
+        "end_time": ("文本(≤10)", "Text (max 10)", "结束时间", "End time"),
+        "break_start_time": ("文本(≤10)", "Text (max 10)", "休息开始，可选", "Break start (optional)"),
+        "break_end_time": ("文本(≤10)", "Text (max 10)", "休息结束，可选", "Break end (optional)"),
+        "location": ("文本(≤50)", "Text (max 50)", "须与资源位置一致；须存在于位置主数据", "Must match resource location"),
+    },
+    "products": {
+        "code": ("文本(≤50)", "Text (max 50)", "产品唯一编码", "Unique product code"),
+        "name": ("文本(≤100)", "Text (max 100)", "产品名称/描述（主数据展示）", "Product name / description"),
+        "unit": ("文本(≤20)", "Text (max 20)", "基本单位，如 PCS", "Base unit of measure"),
+        "product_type": ("文本(≤20)", "Text (max 20)", "产品类型，如 FERT", "Product type"),
+        "location": ("文本(≤50)", "Text (max 50)", "地点代码；须存在于位置主数据", "Location code in master data"),
+        "location_name": ("文本(≤100)", "Text (max 100)", "地点名称（展示）", "Location display name"),
+        "mrp_controller": ("文本(≤20)", "Text (max 20)", "MRP 控制员代码", "MRP controller code"),
+        "mrp_controller_name": ("文本(≤100)", "Text (max 100)", "MRP 控制员名称", "MRP controller name"),
+        "deletion_flag": (
+            "布尔(≤10字符)",
+            "Boolean (≤10 chars)",
+            "删除标记：是表示逻辑删除",
+            "Deletion flag",
+        ),
+        "description": ("长文本(无字符上限)", "Long text (unlimited)", "备注", "Notes"),
+    },
+    "routings": {
+        "code": ("文本(≤50)", "Text (max 50)", "工艺路线编码，唯一", "Unique routing code"),
+        "name": ("文本(≤100)", "Text (max 100)", "工艺路线名称", "Routing name"),
+        "product_code": ("文本(≤50)", "Text (max 50)", "须存在于产品主数据", "Must match product code"),
+        "version": ("文本(≤20)", "Text (max 20)", "版本号，如 1.0", "Version string"),
+        "is_active": (
+            "是或否(≤10字符)",
+            "Yes or No (≤10 chars)",
+            "填「是」或「否」；勿填数字",
+            "Enter Yes or No (or 是/否); do not use 0/1",
+        ),
+        "location": ("文本(≤50)", "Text (max 50)", "须存在于位置主数据", "Location code"),
+        "description": ("长文本(无字符上限)", "Long text (unlimited)", "工艺路线说明", "Routing description"),
+        "sequence": (
+            "整数(十进制，≥1)",
+            "Integer (decimal, ≥1)",
+            "工序序号；本行不填则仅更新路线头信息",
+            "Operation sequence; omit row ops if empty",
+        ),
+        "operation_name": ("文本(≤100)", "Text (max 100)", "工序名称", "Operation name"),
+        "work_center_code": ("文本(≤50)", "Text (max 50)", "与资源编码至少填其一", "Required if no resource code"),
+        "resource_code": ("文本(≤50)", "Text (max 50)", "若填则关联资源并推导工作中心", "If set, links resource and work center"),
+        "setup_time": (
+            "浮点数(双精度，小时)",
+            "Float (double), hours",
+            "准备时间(小时)",
+            "Setup time in hours",
+        ),
+        "run_time_per_unit": (
+            "浮点数(双精度，小时)",
+            "Float (double), hours",
+            "单件工时(小时)，必填",
+            "Run time per unit (hours), required",
+        ),
+        "operation_description": ("长文本(无字符上限)", "Long text (unlimited)", "工序备注", "Operation notes"),
+    },
+    "setup_groups": {
+        "code": ("文本(≤50)", "Text (max 50)", "切换组编码，唯一", "Unique setup group code"),
+        "name": ("文本(≤100)", "Text (max 100)", "切换组名称", "Setup group name"),
+        "description": ("长文本(无字符上限)", "Long text (unlimited)", "说明", "Description"),
+    },
+    "product_setup_groups": {
+        "product_code": ("文本(≤50)", "Text (max 50)", "须存在于产品主数据", "Must match product code"),
+        "setup_group_code": ("文本(≤50)", "Text (max 50)", "须存在于切换组主数据", "Must match setup group code"),
+        "work_center_code": ("文本(≤50)", "Text (max 50)", "可选；空表示全厂/全局", "Optional; empty = global"),
+    },
+    "setup_matrix": {
+        "from_setup_group_code": ("文本(≤50)", "Text (max 50)", "来源切换组编码", "From setup group code"),
+        "to_setup_group_code": ("文本(≤50)", "Text (max 50)", "目标切换组编码", "To setup group code"),
+        "resource_code": ("文本(≤50)", "Text (max 50)", "可选；空表示非资源级矩阵", "Optional resource scope"),
+        "work_center_code": ("文本(≤50)", "Text (max 50)", "可选；空表示厂级全局", "Optional work center scope"),
+        "changeover_time": (
+            "浮点数(双精度，小时)",
+            "Float (double), hours",
+            "切换时间(小时)，≥0",
+            "Changeover time (hours)",
+        ),
+        "description": ("长文本(无字符上限)", "Long text (unlimited)", "备注", "Notes"),
+        "location": ("文本(≤50)", "Text (max 50)", "位置代码", "Location code"),
+    },
+    "production_orders": {
+        "order_number": ("文本(≤50)", "Text (max 50)", "可空；空则系统自动分配单号", "Leave empty for auto order number"),
+        "product_code": ("文本(≤50)", "Text (max 50)", "须存在于产品主数据", "Must match product code"),
+        "quantity": ("浮点数(双精度)", "Float (double)", "订单数量", "Order quantity"),
+        "due_date": (
+            "日期时间(字符串建议≤30或Excel日期)",
+            "Datetime (≤30 chars or Excel date)",
+            "交期（日期或日期时间）",
+            "Due date / datetime",
+        ),
+        "earliest_start": (
+            "日期时间(可空，字符串建议≤30)",
+            "Datetime (opt., ≤30 chars)",
+            "最早可开工，可空",
+            "Earliest start (optional)",
+        ),
+        "priority": (
+            "整数(十进制，1–10)",
+            "Integer (decimal, 1–10)",
+            "优先级 1–10，数字越小越优先",
+            "Priority 1–10 (1 = highest)",
+        ),
+        "order_type": ("文本(≤20)", "Text (max 20)", "planned 或 production", "planned or production"),
+        "location": (
+            "文本(≤50)",
+            "Text (max 50)",
+            "可选；空则取产品主数据位置；须存在于位置主数据",
+            "Optional; defaults to product location; must exist in location master",
+        ),
+        "description": ("长文本(无字符上限)", "Long text (unlimited)", "订单备注", "Order notes"),
+    },
+}
+
+
+def _template_meta_rows(data_type: str, loc: str) -> Tuple[List[str], List[str]]:
+    use_en = loc == "en-US"
+    meta = TEMPLATE_FIELD_META[data_type]
+    type_row: List[str] = []
+    hint_row: List[str] = []
+    for internal, _zh, _en, _extras in FIELD_SPECS[data_type]:
+        tz, te, hz, he = meta[internal]
+        type_row.append(te if use_en else tz)
+        hint_row.append(he if use_en else hz)
+    return type_row, hint_row
+
+
+def _skip_template_meta_rows(ws: Any, data_type: str, col_map: Dict[str, int]) -> int:
+    """若第 2、3 行为本系统生成的类型/说明行，则跳过 2 行数据读取。"""
+    if data_type not in TEMPLATE_DOC_ROW_TYPES or not col_map:
+        return 0
+    first_internal = FIELD_SPECS[data_type][0][0]
+    c = col_map.get(first_internal)
+    if not c:
+        return 0
+    meta = TEMPLATE_FIELD_META[data_type][first_internal]
+    type_zh, type_en, hint_zh, hint_en = meta
+    v2 = ws.cell(row=2, column=c).value
+    v3 = ws.cell(row=3, column=c).value
+    if v2 is None or v3 is None:
+        return 0
+    s2, s3 = str(v2).strip(), str(v3).strip()
+    if s2 in (type_zh.strip(), type_en.strip()) and s3 in (hint_zh.strip(), hint_en.strip()):
+        return 2
+    return 0
 
 
 def _alias_to_internal(data_type: str) -> Dict[str, str]:
@@ -263,24 +478,21 @@ def _sample_row(data_type: str) -> List[Any]:
             "R01",
             "机床1",
             "",
+            "",
             "1020",
             "09:00:00",
             "18:00:00",
-            "00:00:00",
-            100,
-            8.0,
             "",
+            "",
+            100,
             "是",
             "否",
-            1.0,
-            8.0,
-            "CET",
             "01",
             "A",
             "",
         ],
         "locations": ["1020", "示例工厂"],
-        "shifts": ["R01", "D1", "白班", "08:00", "17:00", 60, "1001"],
+        "shifts": ["R01", "D1", "白班", "08:00", "17:00", "", "", "1001"],
         "products": [
             "P01",
             "产品A",
@@ -298,7 +510,7 @@ def _sample_row(data_type: str) -> List[Any]:
             "P01标准工艺",
             "P01",
             "1.0",
-            1,
+            "是",
             "1020",
             "",
             10,
@@ -314,7 +526,7 @@ def _sample_row(data_type: str) -> List[Any]:
         "product_setup_groups": ["P01", "SG01", "WC01"],
         # 工作中心、资源均留空表示厂级全局矩阵，与页面「全局」视图一致
         "setup_matrix": ["SG01", "SG02", "", "", 0.5, "", "1001"],
-        "production_orders": ["", "P01", 100, "2025-12-31", "", 5, "planned", ""],
+        "production_orders": ["", "P01", 100, "2025-12-31", "", 5, "planned", "1020", ""],
     }
     return samples[data_type]
 
@@ -324,6 +536,10 @@ def _build_workbook(data_type: str, loc: str) -> bytes:
     ws = wb.active
     ws.title = data_type[:31]
     ws.append(_header_labels(data_type, loc))
+    if data_type in TEMPLATE_DOC_ROW_TYPES:
+        tr, hr = _template_meta_rows(data_type, loc)
+        ws.append(tr)
+        ws.append(hr)
     if data_type == "routings":
         row = _sample_row(data_type)
         ws.append(row)
@@ -501,6 +717,26 @@ def _import_work_centers(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) ->
     return ok, fail, errors
 
 
+def _ensure_work_center_for_resource_import(db: Session, code: str, description_cell: str) -> int:
+    """按编码查找工作中心；不存在则用工单行列创建工作中心（编码 + 描述/名称）。"""
+    wcc = (code or "").strip()
+    if not wcc:
+        raise ValueError("工作中心编码无效")
+    wc = db.query(models.WorkCenter).filter(models.WorkCenter.code == wcc).first()
+    if wc:
+        return wc.id
+    desc = (description_cell or "").strip()
+    name = (desc or wcc)[:100]
+    wc_new = models.WorkCenter(
+        code=wcc,
+        name=name,
+        description=desc if desc else None,
+    )
+    db.add(wc_new)
+    db.flush()
+    return wc_new.id
+
+
 def _import_resources(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tuple[int, int, List[dict]]:
     ok, fail = 0, 0
     errors: List[dict] = []
@@ -509,34 +745,28 @@ def _import_resources(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tu
             code = str(row.get("code") or "").strip()
             name = str(row.get("name") or "").strip()
             wcc = str(row.get("work_center_code") or "").strip()
+            wc_desc_cell = str(row.get("work_center_description") or "").strip()
             if not code or not name:
                 raise ValueError("资源编码、资源名称必填")
             wc_id: Optional[int] = None
             if wcc:
-                wc = db.query(models.WorkCenter).filter(models.WorkCenter.code == wcc).first()
-                if wc:
-                    wc_id = wc.id
+                wc_id = _ensure_work_center_for_resource_import(db, wcc, wc_desc_cell)
 
-            up = _parse_float(row.get("utilization_percent"))
-            eff_in = _parse_float(row.get("efficiency"))
-            if up is not None:
-                eff = max(0.0, min(2.0, up / 100.0))
-            elif eff_in is not None:
-                eff = eff_in
-            else:
-                eff = 1.0
+            up = _parse_float(row.get("utilization_percent")) if "utilization_percent" in row else None
 
-            cpd = _parse_float(row.get("capacity_per_day"))
-            cv = _parse_float(row.get("capacity_value"))
-            ph = _parse_float(row.get("production_hours"))
+            cpd = _parse_float(row.get("capacity_per_day")) if "capacity_per_day" in row else None
+            cv = _parse_float(row.get("capacity_value")) if "capacity_value" in row else None
+            ph = _parse_float(row.get("production_hours")) if "production_hours" in row else None
+            has_cap_source = any(
+                k in row for k in ("capacity_per_day", "capacity_value", "production_hours")
+            )
+            cap: Optional[float] = None
             if cpd is not None:
                 cap = cpd
             elif cv is not None:
                 cap = cv
             elif ph is not None:
                 cap = ph
-            else:
-                cap = 8.0
 
             def _sopt(k: str) -> Optional[str]:
                 v = row.get(k)
@@ -548,36 +778,45 @@ def _import_resources(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tu
             existing = db.query(models.Resource).filter(models.Resource.code == code).first()
             ors = _sopt("operating_rest_start")
             ore = _sopt("operating_rest_end")
-            ob = _sopt("operating_break")
+            ob: Optional[str] = None
+            if "operating_break" in row:
+                ob = _sopt("operating_break")
             if ors and ore:
                 ob = operating_break_duration_str(break_minutes_between(ors, ore))
             payload = dict(
                 name=name,
                 work_center_id=wc_id,
-                capacity_per_day=cap,
-                efficiency=eff,
                 description=desc,
                 location=_sopt("location"),
                 operating_start=_sopt("operating_start"),
                 operating_end=_sopt("operating_end"),
                 operating_rest_start=ors,
                 operating_rest_end=ore,
-                operating_break=ob,
-                utilization_percent=up,
-                production_hours=ph,
-                capacity_value=cv,
                 finite_planning=_parse_optional_bool(row.get("finite_planning"), True),
                 is_bottleneck=_parse_optional_bool(row.get("is_bottleneck"), False),
-                timezone=_sopt("timezone"),
                 factory_calendar=_sopt("factory_calendar"),
                 planning_group=_sopt("planning_group"),
             )
+            if has_cap_source:
+                payload["capacity_per_day"] = cap if cap is not None else 8.0
+            if "production_hours" in row:
+                payload["production_hours"] = ph
+            if "utilization_percent" in row:
+                payload["utilization_percent"] = up
+            if ob is not None or "operating_break" in row or (ors and ore):
+                payload["operating_break"] = ob
+            if "capacity_value" in row:
+                payload["capacity_value"] = cv
+            if "timezone" in row:
+                payload["timezone"] = _sopt("timezone")
             if payload.get("location"):
                 _require_location_master(db, payload["location"])
             if existing:
                 for k, v in payload.items():
                     setattr(existing, k, v)
             else:
+                if "capacity_per_day" not in payload:
+                    payload["capacity_per_day"] = 8.0
                 db.add(models.Resource(code=code, **payload))
             ok += 1
         except Exception as e:
@@ -636,9 +875,17 @@ def _import_shifts(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tuple
 
             bss = _ss("break_start_time")
             bes = _ss("break_end_time")
-            br = _parse_int(row.get("break_time"), 0) or 0
+            touch_break = any(
+                k in row for k in ("break_time", "break_start_time", "break_end_time")
+            )
+            br: Optional[int] = None
             if bss and bes:
                 br = break_minutes_between(bss, bes)
+            elif "break_time" in row:
+                br = _parse_int(row.get("break_time"), 0) or 0
+            elif touch_break:
+                br = 0
+
             existing = (
                 db.query(models.Shift)
                 .filter(models.Shift.resource_id == res.id, models.Shift.shift_code == sc)
@@ -648,10 +895,11 @@ def _import_shifts(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tuple
                 existing.shift_name = sn
                 existing.start_time = st
                 existing.end_time = et
-                existing.break_start_time = bss
-                existing.break_end_time = bes
-                existing.break_time = br
                 existing.location = loc
+                if touch_break:
+                    existing.break_start_time = bss
+                    existing.break_end_time = bes
+                    existing.break_time = br if br is not None else 0
             else:
                 db.add(
                     models.Shift(
@@ -660,9 +908,9 @@ def _import_shifts(db: Session, rows: List[Tuple[int, Dict[str, Any]]]) -> Tuple
                         shift_name=sn,
                         start_time=st,
                         end_time=et,
-                        break_start_time=bss,
-                        break_end_time=bes,
-                        break_time=br,
+                        break_start_time=bss if touch_break else None,
+                        break_end_time=bes if touch_break else None,
+                        break_time=br if br is not None else 0,
                         location=loc,
                     )
                 )
@@ -1107,7 +1355,11 @@ def _import_production_orders(db: Session, rows: List[Tuple[int, Dict[str, Any]]
                 )
                 db.add(db_order)
             db.flush()
-            db_order.location = _require_location_master(db, prod.location)
+            loc_cell = row.get("location")
+            if loc_cell is not None and str(loc_cell).strip() != "":
+                db_order.location = _require_location_master(db, loc_cell)
+            else:
+                db_order.location = _require_location_master(db, prod.location)
             replace_order_operations_from_routing(db, db_order)
             ok += 1
         except Exception as e:
@@ -1137,6 +1389,8 @@ def _required_column_keys(data_type: str) -> List[str]:
         ]
     if data_type == "resources":
         return ["code", "name"]
+    if data_type == "production_orders":
+        return [spec[0] for spec in FIELD_SPECS[data_type] if spec[0] != "location"]
     return [spec[0] for spec in FIELD_SPECS[data_type]]
 
 
@@ -1163,8 +1417,10 @@ def _parse_upload_sheet(content: bytes, data_type: str) -> List[Tuple[int, Dict[
     missing = [k for k in required if k not in col_map]
     if missing:
         raise ValueError(f"缺少列: {', '.join(missing)}")
+    skip_meta = _skip_template_meta_rows(ws, data_type, col_map)
+    first_data_row = 2 + skip_meta
     out: List[Tuple[int, Dict[str, Any]]] = []
-    for row_idx in range(2, max_row + 1):
+    for row_idx in range(first_data_row, max_row + 1):
         rowd = _map_row(ws, row_idx, col_map)
         if _row_is_empty(rowd):
             continue

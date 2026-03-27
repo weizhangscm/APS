@@ -141,40 +141,10 @@ export const useDSFiltersStore = defineStore('dsFilters', () => {
     dsProductAssignments.value = data || []
   }
 
-  function locationQueryFromSelection() {
-    const params = {}
-    const pls = [
-      ...new Set(
-        selectedProductIds.value
-          .map((id) => {
-            const p = dsProducts.value.find((x) => x.id === id)
-            const loc = p?.location && String(p.location).trim()
-            return loc || null
-          })
-          .filter(Boolean)
-      )
-    ]
-    const rls = [
-      ...new Set(
-        selectedResourceIds.value
-          .map((id) => {
-            const r = dsResources.value.find((x) => x.id === id)
-            const loc = r?.location && String(r.location).trim()
-            return loc || null
-          })
-          .filter(Boolean)
-      )
-    ]
-    if (pls.length === 1) params.product_location = pls[0]
-    else if (pls.length > 1) params.product_locations = pls.join(',')
-    if (rls.length === 1) params.resource_location = rls[0]
-    else if (rls.length > 1) params.resource_locations = rls.join(',')
-    return params
-  }
-
-  // 加载DS订单数据
-  // options.filterLocationCodes：多选位置（与产品/资源推导互斥）
-  // options.filterLocation：单位置字符串（兼容旧调用）
+  // 加载订单列表（生产/计划订单页使用）
+  // - options.filterLocationCodes：多选位置，非空时按订单 location 过滤
+  // - options.filterLocation：单位置字符串（兼容旧调用）
+  // - 未传位置时不附加 location 参数，不按详细计划表上的资源/产品选择推导（避免跨页串扰）
   async function fetchDSOrders(status = null, orderType = null, options = {}) {
     ordersLoading.value = true
     try {
@@ -189,7 +159,7 @@ export const useDSFiltersStore = defineStore('dsFilters', () => {
         const raw = options.filterLocation != null ? String(options.filterLocation).trim() : ''
         locParams = raw
           ? { product_location: raw, resource_location: raw }
-          : locationQueryFromSelection()
+          : {}
       }
       const orders = await ordersApi.getOrders(status, orderType, locParams)
       // 处理订单数据：当工序的计划开始/计划结束为空时，使用交货日期填充
@@ -294,7 +264,6 @@ export const useDSFiltersStore = defineStore('dsFilters', () => {
     setDSSetupGroups,
     setDSProductAssignments,
     fetchDSOrders,
-    locationQueryFromSelection,
     // 详细计划表筛选方法
     setSelectedResources,
     setSelectedProducts,

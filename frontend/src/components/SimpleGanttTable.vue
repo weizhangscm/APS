@@ -100,7 +100,7 @@
               :class="[getTaskClass(item), { 'is-draggable': canDrag(item), 'is-dragging': draggingItem?.id === item.id }]"
               :style="getTaskBarStyle(item)"
               :title="`${item.text}\n开始: ${formatDateTime(item.start_date)}\n结束: ${formatDateTime(item.end_date)}`"
-              @mousedown.prevent="canDrag(item) && onTaskBarMouseDown($event, item)"
+              @pointerdown.prevent="canDrag(item) && onTaskBarPointerDown($event, item)"
             >
             </div>
           </div>
@@ -145,11 +145,15 @@ const timeAxisRef = ref(null)
 const leftContentRef = ref(null)
 const rightContentRef = ref(null)
 
+// 与 .gantt-row / 左侧表格 tr 高度一致
+const GANTT_ROW_HEIGHT = 44
+
 // 拖拽状态：当前拖拽的工序项、预览位置（px）
 const draggingItem = ref(null)
 const dragPreviewLeft = ref(null)
 
 let isScrolling = false
+let dragShiftKey = false
 
 // 是否允许拖拽：子任务、有 operation_id、非生产订单、非切换准备条
 function canDrag(item) {
@@ -188,11 +192,30 @@ function getTaskBarStyle(item) {
   return base
 }
 
-function onTaskBarMouseDown(e, item) {
-  if (!canDrag(item) || !rightContentRef.value || timeAxis.value.length === 0) return
-  const rect = rightContentRef.value.getBoundingClientRect()
-  const startX = e.clientX - rect.left + rightContentRef.value.scrollLeft
-  const startLeft = pixelOffsetToDate(0) ? (new Date(item.start_date) - timeAxis.value[0].date) / (24 * 60 * 60 * 1000) * dayWidth.value : 0
+/** 根据指针 Y 命中哪一行，解析目标资源 ID（资源视图跨行拖拽） */
+function resolveTargetResourceIdFromY(clientY) {
+  const el = rightContentRef.value
+  if (!el) return null
+  const rect = el.getBoundingClientRect()
+  const y = clientY - rect.top + el.scrollTop
+  let idx = Math.floor(y / GANTT_ROW_HEIGHT)
+  const rows = flattenedData.value
+  if (!rows.length) return null
+  idx = Math.max(0, Math.min(idx, rows.length - 1))
+  const row = rows[idx]
+  if (!row) return null
+  if (row.isGroup) {
+    return row.resource_id != null ? row.resource_id : null
+  }
+  return row.resource_id != null ? row.resource_id : null
+}
+
+function onTaskBarPointerDown(e, item) {
+  if (e.button !== 0 || !canDrag(item) || !rightContentRef.value || timeAxis.value.length === 0) return
+  dragShiftKey = !!e.shiftKey
+  const startLeft = timeAxis.value[0].date
+    ? (new Date(item.start_date) - timeAxis.value[0].date) / (24 * 60 * 60 * 1000) * dayWidth.value
+    : 0
 
   draggingItem.value = item
   dragPreviewLeft.value = startLeft
@@ -206,14 +229,14 @@ function onTaskBarMouseDown(e, item) {
     dragPreviewLeft.value = offset
   }
 
-  const onUp = () => {
+  const onUp = (e2) => {
     if (!draggingItem.value) return
     const itemToEmit = draggingItem.value
     const leftPx = dragPreviewLeft.value != null ? dragPreviewLeft.value : 0
     draggingItem.value = null
     dragPreviewLeft.value = null
-    document.removeEventListener('mousemove', onMove)
-    document.removeEventListener('mouseup', onUp)
+    window.removeEventListener('pointermove', onMove)
+    window.removeEventListener('pointerup', onUp, true)
 
     const newStart = pixelOffsetToDate(leftPx)
     if (!newStart) return
@@ -228,16 +251,25 @@ function onTaskBarMouseDown(e, item) {
       if (clampedStart > end) clampedStart = end
     }
 
+    const targetRes = resolveTargetResourceIdFromY(e2.clientY)
+    const origRes = itemToEmit.resource_id
+    let newResourceId = null
+    if (targetRes != null && origRes != null && targetRes !== origRes) {
+      newResourceId = targetRes
+    }
+
     emit('task-dragged', {
       operationId: itemToEmit.operation_id,
       newStart: clampedStart,
-      resourceId: itemToEmit.resource_id ?? null,
-      originalStart: new Date(itemToEmit.start_date)
+      resourceId: newResourceId,
+      originalStart: new Date(itemToEmit.start_date),
+      moveWholeOrder: dragShiftKey
     })
+    dragShiftKey = false
   }
 
-  document.addEventListener('mousemove', onMove)
-  document.addEventListener('mouseup', onUp)
+  window.addEventListener('pointermove', onMove)
+  window.addEventListener('pointerup', onUp, true)
 }
 
 // 左侧表格纵向滚动时，同步右侧甘特条区域
@@ -322,8 +354,17 @@ const groupedByResource = computed(() => {
     // 计算合并后的时间段（用于资源行显示多段条形图）
     const mergedTimeRanges = calculateMergedTimeRanges(children)
     
+    const rid =
+      resource.resource_id != null
+        ? resource.resource_id
+        : typeof resource.id === 'string' && resource.id.startsWith('resource_')
+          ? parseInt(resource.id.replace(/^resource_/, ''), 10)
+          : typeof resource.id === 'number'
+            ? resource.id
+            : null
     resourceList.push({
       id: resource.id,
+      resource_id: Number.isFinite(rid) ? rid : resource.resource_id ?? null,
       resourceName: resourceName,
       description: resource.description || '',
       children: children.map(child => ({
@@ -427,6 +468,7 @@ const flattenedData = computed(() => {
     // 资源行使用多段时间范围显示
     result.push({
       id: resource.id,
+      resource_id: resource.resource_id,
       displayName: resource.resourceName,
       // 资源行使用多段时间范围
       timeRanges: resource.timeRanges,
@@ -936,6 +978,7 @@ const formatDateTime = (dateStr) => (dateStr ? formatDisplayDateTime(dateStr) : 
 
   &.is-draggable {
     cursor: grab;
+    touch-action: none;
   }
 
   &.is-dragging {

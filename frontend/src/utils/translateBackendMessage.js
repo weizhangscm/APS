@@ -33,6 +33,7 @@ export function translateBackendMessage (message, t, locale) {
   if (m === '没有找到需要保存的排程') return t('dsView.noScheduleToSave')
   if (m === '没有找到需要取消的排程') return t('dsView.noScheduleToCancel')
   if (m === '没有需要丢弃的排程更改') return t('dsView.noChangesToDiscard')
+  if (m === '已更新预览（未写入数据库），请保存计划或丢弃更改') return t('dsView.dragPreviewUpdated')
   if (m === '请指定要保存计划的资源或产品') return t('dsView.specifyResourceOrProductForSave')
   if (m === '请指定要取消计划的资源或产品') return t('dsView.specifyResourceOrProductForCancel')
 

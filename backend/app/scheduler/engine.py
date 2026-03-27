@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 import logging
 
 from .. import models, schemas
+from ..datetime_compat import to_naive_utc
 
 logger = logging.getLogger(__name__)
 from .algorithms import ForwardScheduler, BackwardScheduler, StableForwardScheduler, sort_orders_by_priority
@@ -179,24 +180,47 @@ class SchedulingEngine:
             conflicts=conflicts
         )
     
+    def _schedule_overlay_dict(self) -> Dict[int, CachedOperation]:
+        """当前未保存预览缓存，按 operation_id 索引。"""
+        if not schedule_cache.has_unsaved_changes:
+            return {}
+        return {co.operation_id: co for co in schedule_cache.get_all_operations()}
+
+    def _to_cached_operation(
+        self,
+        op: models.Operation,
+        scheduled_start: datetime,
+        scheduled_end: datetime,
+        resource_id: Optional[int],
+    ) -> CachedOperation:
+        rid = resource_id if resource_id is not None else op.resource_id
+        if rid is None:
+            rid = 0
+        return CachedOperation(
+            operation_id=op.id,
+            order_id=op.order_id,
+            resource_id=rid,
+            scheduled_start=scheduled_start,
+            scheduled_end=scheduled_end,
+            changeover_time=float(getattr(op, 'changeover_time', 0) or 0),
+            status='scheduled',
+        )
+
     def reschedule_operation(
         self,
         operation_id: int,
         new_start: datetime,
-        new_resource_id: int = None
+        new_resource_id: int = None,
+        move_whole_order: bool = False
     ) -> Dict:
         """
-        重新排程单个工序（用于拖拽调整）
-        
-        Args:
-            operation_id: 工序ID
-            new_start: 新的开始时间
-            new_resource_id: 新的资源ID（可选）
-        
-        Returns:
-            始终返回业务结构，不抛出未捕获异常，避免 HTTP 500
+        重新排程单个工序（用于拖拽调整）— 仅写入预览缓存，不提交数据库；
+        需用户点击「保存计划」后落库，或「丢弃计划」放弃。
         """
         try:
+            new_start = to_naive_utc(new_start)
+            overlay = self._schedule_overlay_dict()
+
             operation = self.db.query(models.Operation).filter(
                 models.Operation.id == operation_id
             ).first()
@@ -216,15 +240,56 @@ class SchedulingEngine:
                     'message': '生产订单已确认，不允许调整排程',
                     'conflicts': []
                 }
+
+            if move_whole_order:
+                violations = self.validator.check_whole_order_shift(
+                    operation_id, new_start, new_resource_id, schedule_overlay=overlay
+                )
+                errors = [v for v in violations if v.severity == 'error']
+                if errors:
+                    return {
+                        'success': False,
+                        'message': '移动违反约束',
+                        'conflicts': [v.to_dict() for v in violations]
+                    }
+                eff_anchor_start, _, eff_anchor_res = self.validator._eff_schedule(operation, overlay)
+                offset_seconds = (new_start - eff_anchor_start).total_seconds()
+                order_ops = self.db.query(models.Operation).filter(
+                    models.Operation.order_id == operation.order_id
+                ).order_by(models.Operation.sequence).all()
+                scheduled_ops = [
+                    op for op in order_ops
+                    if self.validator._eff_schedule(op, overlay)[0] is not None
+                    and self.validator._eff_schedule(op, overlay)[1] is not None
+                ]
+                cached_batch: List[CachedOperation] = []
+                for op in scheduled_ops:
+                    es, ee, er = self.validator._eff_schedule(op, overlay)
+                    if op.id == operation_id:
+                        res = new_resource_id if new_resource_id is not None else er
+                        ns = new_start
+                        ne = new_start + timedelta(hours=op.run_time)
+                    else:
+                        res = er
+                        ns = es + timedelta(seconds=offset_seconds)
+                        ne = ee + timedelta(seconds=offset_seconds)
+                    cached_batch.append(self._to_cached_operation(op, ns, ne, res))
+                schedule_cache.set_schedule(cached_batch, message='拖拽调整（整单平移）', merge=True)
+                return {
+                    'success': True,
+                    'message': '已更新预览（未写入数据库），请保存计划或丢弃更改',
+                    'conflicts': [v.to_dict() for v in violations if v.severity == 'warning'],
+                    'has_unsaved_changes': schedule_cache.has_unsaved_changes,
+                    'preview_mode': True,
+                }
             
-            # 检查约束（含基础主数据检查）
             violations = self.validator.check_operation_move(
                 operation_id,
                 new_start,
-                new_resource_id
+                new_resource_id,
+                schedule_overlay=overlay,
             )
             
-            # 如果有错误级别的违反，不允许移动
             errors = [v for v in violations if v.severity == 'error']
             if errors:
                 return {
@@ -233,12 +298,8 @@ class SchedulingEngine:
                     'conflicts': [v.to_dict() for v in violations]
                 }
             
-            # 更新工序
-            duration = operation.run_time
-            old_start = operation.scheduled_start
-
-            # 若原始开始时间缺失，视为未排程工序，禁止通过拖拽调整
-            if old_start is None:
+            eff_start, _, eff_res = self.validator._eff_schedule(operation, overlay)
+            if eff_start is None:
                 violation = ConstraintViolation(
                     violation_type='unscheduled_operation',
                     severity='error',
@@ -252,34 +313,39 @@ class SchedulingEngine:
                     'conflicts': [violation.to_dict()]
                 }
 
+            duration = operation.run_time
             new_end = new_start + timedelta(hours=duration)
-            
-            # 计算偏移量（秒）
-            offset_seconds = (new_start - old_start).total_seconds()
-            
-            operation.scheduled_start = new_start
-            operation.scheduled_end = new_end
-            
-            if new_resource_id:
-                operation.resource_id = new_resource_id
-            
-            # 联动更新：同步移动该订单的所有后续工序
+            offset_seconds = (new_start - eff_start).total_seconds()
+            anchor_res = new_resource_id if new_resource_id is not None else eff_res
+
+            cached_batch = [
+                self._to_cached_operation(operation, new_start, new_end, anchor_res)
+            ]
             successors = self.db.query(models.Operation).filter(
                 models.Operation.order_id == operation.order_id,
                 models.Operation.sequence > operation.sequence
-            ).all()
-            
+            ).order_by(models.Operation.sequence).all()
             for succ in successors:
-                if succ.scheduled_start:
-                    succ.scheduled_start = succ.scheduled_start + timedelta(seconds=offset_seconds)
-                    succ.scheduled_end = succ.scheduled_end + timedelta(seconds=offset_seconds)
-            
-            self.db.commit()
-            
+                s, e, r = self.validator._eff_schedule(succ, overlay)
+                if s is None or e is None:
+                    continue
+                cached_batch.append(
+                    self._to_cached_operation(
+                        succ,
+                        s + timedelta(seconds=offset_seconds),
+                        e + timedelta(seconds=offset_seconds),
+                        r,
+                    )
+                )
+
+            schedule_cache.set_schedule(cached_batch, message='拖拽调整', merge=True)
+
             return {
                 'success': True,
-                'message': '工序已重新排程',
-                'conflicts': [v.to_dict() for v in violations]  # 返回警告
+                'message': '已更新预览（未写入数据库），请保存计划或丢弃更改',
+                'conflicts': [v.to_dict() for v in violations if v.severity == 'warning'],
+                'has_unsaved_changes': schedule_cache.has_unsaved_changes,
+                'preview_mode': True,
             }
         except Exception as e:
             # 捕获所有未预期异常，写日志并返回业务错误，避免 HTTP 500
@@ -2581,6 +2647,8 @@ class SchedulingEngine:
         Returns:
             包含成功状态和冲突信息的字典
         """
+        new_start = to_naive_utc(new_start)
+
         operation = self.db.query(models.Operation).filter(
             models.Operation.id == operation_id
         ).first()

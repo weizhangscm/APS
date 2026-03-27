@@ -144,7 +144,7 @@
         </el-table-column>
         <el-table-column prop="run_time_per_unit" :label="t('dsRouting.runTimePerUnit')" min-width="100" align="right">
           <template #default="{ row }">
-            {{ row.run_time_per_unit.toFixed(4) }}
+            {{ row.run_time_per_unit.toFixed(2) }}
           </template>
         </el-table-column>
         <el-table-column :label="t('masterData.actions')" width="140" align="center">
@@ -184,7 +184,7 @@
           <el-input-number v-model="opForm.setup_time" :min="0" :precision="2" :step="0.1" />
         </el-form-item>
         <el-form-item :label="t('dsRouting.runTimePerUnit')" prop="run_time_per_unit">
-          <el-input-number v-model="opForm.run_time_per_unit" :min="0.0001" :precision="4" :step="0.01" />
+          <el-input-number v-model="opForm.run_time_per_unit" :min="0" :precision="2" :step="0.01" style="width: 100%" />
         </el-form-item>
         <el-form-item :label="t('masterData.description')">
           <el-input v-model="opForm.description" type="textarea" rows="2" />

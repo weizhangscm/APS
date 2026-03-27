@@ -11,6 +11,7 @@ from ..services.location_catalog import (
     parse_location_filter_codes,
     require_location_code,
 )
+from ..services.planned_operation_times import planned_operation_scheduled_times
 
 router = APIRouter()
 
@@ -119,6 +120,11 @@ def replace_order_operations_from_routing(db: Session, db_order: models.Producti
             if is_production
             else schemas.OperationStatus.PENDING.value
         )
+        sched_start, sched_end = (None, None)
+        if not is_production and default_resource_id:
+            sched_start, sched_end = planned_operation_scheduled_times(
+                db, default_resource_id, db_order.due_date, run_time
+            )
         db.add(
             models.Operation(
                 order_id=db_order.id,
@@ -128,6 +134,8 @@ def replace_order_operations_from_routing(db: Session, db_order: models.Producti
                 name=routing_op.name,
                 setup_time=routing_op.setup_time,
                 run_time=run_time,
+                scheduled_start=sched_start,
+                scheduled_end=sched_end,
                 status=operation_status,
             )
         )

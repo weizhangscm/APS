@@ -80,7 +80,6 @@ class Resource(Base):
     name = Column(String(100), nullable=False)
     work_center_id = Column(Integer, ForeignKey("work_centers.id"), nullable=True)
     capacity_per_day = Column(Float, default=8.0)  # 每天可用小时数
-    efficiency = Column(Float, default=1.0)  # 效率系数
     description = Column(Text, nullable=True)
     # DS 资源视图扩展字段（Excel 导入/展示）
     location = Column(String(50), nullable=True)

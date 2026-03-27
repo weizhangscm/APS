@@ -1436,10 +1436,6 @@ const handleReplan = async () => {
 }
 
 const handleTaskDragged = async (data) => {
-  if (hasUnsavedChanges.value) {
-    ElMessage.warning(t('dsView.saveOrDiscardFirst'))
-    return
-  }
   await handleTaskUpdated(data)
 }
 
@@ -1448,10 +1444,11 @@ const handleTaskUpdated = async (data) => {
     const result = await schedulingStore.rescheduleOperation(
       data.operationId,
       data.newStart.toISOString(),
-      data.resourceId
+      data.resourceId ?? null,
+      !!data.moveWholeOrder
     )
     if (result.success) {
-      ElMessage.success(t('messages.operationSuccess'))
+      ElMessage.success(trMsg(result.message) || t('messages.operationSuccess'))
       await loadGanttData()
     } else {
       const violationType = result.conflicts?.[0]?.type ?? result.violation_type
@@ -1460,6 +1457,8 @@ const handleTaskUpdated = async (data) => {
           ? t('dsView.cannotBeforePrevOperation')
           : violationType === 'resource_conflict'
             ? t('dsView.resourceUnavailable')
+            : violationType === 'invalid_resource'
+              ? t('dsView.invalidResourceTarget')
             : violationType === 'missing_runtime'
               ? t('dsView.operationMissingRuntime')
               : violationType === 'unscheduled_operation'

@@ -118,17 +118,6 @@
             style="width: 100%"
           />
         </el-form-item>
-        <el-form-item :label="t('shifts.breakTime')" prop="break_time">
-          <el-input-number
-            v-model="form.break_time"
-            :min="0"
-            :max="480"
-            :step="15"
-            :disabled="!!(form.break_start_time && form.break_end_time)"
-            style="width: 100%"
-          />
-          <div class="form-tip">{{ t('shifts.breakTimeAutoHint') }}</div>
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">{{ t('common.cancel') }}</el-button>

@@ -107,13 +107,20 @@ export const useSchedulingStore = defineStore('scheduling', () => {
     }
   }
 
-  async function rescheduleOperation(operationId, newStart, newResourceId = null) {
+  async function rescheduleOperation(operationId, newStart, newResourceId = null, moveWholeOrder = false) {
     try {
-      const result = await schedulingApi.rescheduleOperation({
+      const payload = {
         operation_id: operationId,
         new_start: newStart,
-        new_resource_id: newResourceId
-      })
+        move_whole_order: !!moveWholeOrder
+      }
+      if (newResourceId != null && newResourceId !== '') {
+        payload.new_resource_id = newResourceId
+      }
+      const result = await schedulingApi.rescheduleOperation(payload)
+      if (result.has_unsaved_changes !== undefined) {
+        hasUnsavedChanges.value = result.has_unsaved_changes
+      }
       if (result.success) {
         await fetchGanttData(currentViewType.value)
       }

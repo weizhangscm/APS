@@ -80,7 +80,6 @@ class ResourceBase(BaseModel):
     name: str = Field(..., max_length=100)
     work_center_id: Optional[int] = None
     capacity_per_day: float = 8.0
-    efficiency: float = 1.0
     description: Optional[str] = None
     location: Optional[str] = None
     operating_start: Optional[str] = None
@@ -107,7 +106,6 @@ class ResourceUpdate(BaseModel):
     name: Optional[str] = Field(None, max_length=100)
     work_center_id: Optional[int] = None
     capacity_per_day: Optional[float] = None
-    efficiency: Optional[float] = None
     description: Optional[str] = None
     location: Optional[str] = None
     operating_start: Optional[str] = None
@@ -424,6 +422,7 @@ class OperationReschedule(BaseModel):
     operation_id: int
     new_start: datetime
     new_resource_id: Optional[int] = None
+    move_whole_order: bool = False  # True：整单已排程工序同时平移（Shift+拖拽）
 
 
 # Gantt Chart Data

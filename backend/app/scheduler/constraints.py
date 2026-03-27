@@ -3,11 +3,13 @@
 用于检测排程中的冲突和约束违反
 """
 from datetime import datetime, timedelta
-from typing import List, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from collections import defaultdict
 
 from .. import models
+from ..datetime_compat import to_naive_utc
 
 
 class ConstraintViolation:
@@ -209,16 +211,37 @@ class ConstraintValidator:
                             'overload_percent': overload_percent
                         }
                     ))
-    
+
+    def _eff_schedule(
+        self,
+        op: models.Operation,
+        schedule_overlay: Optional[Dict[int, Any]],
+    ) -> Tuple[Optional[datetime], Optional[datetime], Optional[int]]:
+        """当前生效的排程（未保存缓存优先，否则数据库）。"""
+        if schedule_overlay and op.id in schedule_overlay:
+            c = schedule_overlay[op.id]
+            return c.scheduled_start, c.scheduled_end, c.resource_id
+        return op.scheduled_start, op.scheduled_end, op.resource_id
+
     def check_operation_move(
         self,
         operation_id: int,
         new_start: datetime,
-        new_resource_id: int = None
+        new_resource_id: int = None,
+        schedule_overlay: Optional[Dict[int, Any]] = None,
     ) -> List[ConstraintViolation]:
-        """检查工序移动是否违反约束"""
+        """检查工序移动是否违反约束。schedule_overlay：预览缓存 operation_id -> CachedOperation。"""
         violations = []
-        
+        new_start = to_naive_utc(new_start)
+        if new_start is None:
+            violations.append(ConstraintViolation(
+                violation_type='invalid_time',
+                severity='error',
+                message='新的开始时间无效',
+                operation_id=operation_id
+            ))
+            return violations
+
         operation = self.db.query(models.Operation).filter(
             models.Operation.id == operation_id
         ).first()
@@ -232,8 +255,6 @@ class ConstraintValidator:
             ))
             return violations
 
-        # 基础主数据完整性检查（避免在后续计算中抛技术异常）
-        # 1. 运行时间缺失：无法计算 new_end
         if operation.run_time is None:
             violations.append(ConstraintViolation(
                 violation_type='missing_runtime',
@@ -242,70 +263,291 @@ class ConstraintValidator:
                 operation_id=operation_id
             ))
             return violations
+
+        eff_start, eff_end, eff_res = self._eff_schedule(operation, schedule_overlay)
+        if eff_start is None:
+            violations.append(ConstraintViolation(
+                violation_type='unscheduled_operation',
+                severity='error',
+                message='工序尚未排程，无法通过拖拽调整',
+                operation_id=operation_id,
+                order_id=operation.order_id
+            ))
+            return violations
         
-        resource_id = new_resource_id or operation.resource_id
+        target_res = new_resource_id if new_resource_id is not None else eff_res
         duration = operation.run_time
         new_end = new_start + timedelta(hours=duration)
+        order = operation.order
+
+        if new_resource_id is not None and new_resource_id != eff_res:
+            violations.extend(
+                self._cross_resource_violations(operation, new_resource_id)
+            )
+            if any(v.severity == 'error' for v in violations):
+                return violations
         
-        # 检查与同资源其他工序的冲突
-        other_ops = self.db.query(models.Operation).filter(
-            models.Operation.resource_id == resource_id,
-            models.Operation.id != operation_id,
+        successor_ids: List[int] = []
+        if order:
+            for s in self.db.query(models.Operation).filter(
+                models.Operation.order_id == order.id,
+                models.Operation.sequence > operation.sequence,
+            ).all():
+                if self._eff_schedule(s, schedule_overlay)[0] is not None:
+                    successor_ids.append(s.id)
+
+        candidate_ids = set()
+        for row in self.db.query(models.Operation.id).filter(
             models.Operation.scheduled_start != None
-        ).all()
-        
-        for other in other_ops:
-            if new_start < other.scheduled_end and new_end > other.scheduled_start:
+        ).all():
+            candidate_ids.add(row[0])
+        if schedule_overlay:
+            candidate_ids |= set(schedule_overlay.keys())
+
+        for oid in candidate_ids:
+            o = self.db.query(models.Operation).filter(models.Operation.id == oid).first()
+            if not o:
+                continue
+            os_t, oe_t, ors = self._eff_schedule(o, schedule_overlay)
+            if os_t is None or oe_t is None or ors is None:
+                continue
+            if ors != target_res:
+                continue
+            if oid == operation_id:
+                continue
+            if oid in successor_ids:
+                continue
+            if new_start < oe_t and new_end > os_t:
                 violations.append(ConstraintViolation(
                     violation_type='resource_conflict',
                     severity='error',
-                    message=f'移动将导致与工序 {other.name} 冲突',
+                    message=f'移动将导致与工序 {o.name} 冲突',
                     operation_id=operation_id,
-                    resource_id=resource_id,
-                    details={
-                        'conflicting_operation_id': other.id
-                    }
+                    resource_id=target_res,
+                    details={'conflicting_operation_id': o.id}
                 ))
         
-        # 检查工序顺序约束
-        order = operation.order
         if order:
-            # 前道工序
             prev_ops = self.db.query(models.Operation).filter(
                 models.Operation.order_id == order.id,
                 models.Operation.sequence < operation.sequence,
-                models.Operation.scheduled_end != None
             ).all()
             
             for prev in prev_ops:
-                if prev.scheduled_end > new_start:
+                _, peff, _ = self._eff_schedule(prev, schedule_overlay)
+                if peff is None:
+                    continue
+                if peff > new_start:
                     violations.append(ConstraintViolation(
                         violation_type='sequence_violation',
                         severity='error',
                         message=f'移动将违反与前道工序 {prev.name} 的顺序约束',
                         operation_id=operation_id,
-                        details={
-                            'prev_operation_id': prev.id
-                        }
+                        details={'prev_operation_id': prev.id}
                     ))
             
-            # 后道工序
+            offset = new_start - eff_start
             next_ops = self.db.query(models.Operation).filter(
                 models.Operation.order_id == order.id,
                 models.Operation.sequence > operation.sequence,
-                models.Operation.scheduled_start != None
             ).all()
             
             for next_op in next_ops:
-                if new_end > next_op.scheduled_start:
+                ns, _, _ = self._eff_schedule(next_op, schedule_overlay)
+                if ns is None:
+                    continue
+                projected_next_start = ns + offset
+                if new_end > projected_next_start:
                     violations.append(ConstraintViolation(
                         violation_type='sequence_violation',
                         severity='error',
                         message=f'移动将违反与后道工序 {next_op.name} 的顺序约束',
                         operation_id=operation_id,
-                        details={
-                            'next_operation_id': next_op.id
-                        }
+                        details={'next_operation_id': next_op.id}
                     ))
         
+        return violations
+
+    def _cross_resource_violations(
+        self,
+        operation: models.Operation,
+        new_resource_id: int
+    ) -> List[ConstraintViolation]:
+        """拖拽改资源：仅允许与工艺路线指定资源同一工作中心下的资源。"""
+        out: List[ConstraintViolation] = []
+        ro = operation.routing_operation
+        if not ro:
+            out.append(ConstraintViolation(
+                violation_type='invalid_resource',
+                severity='error',
+                message='工序缺少工艺路线定义，无法更换资源',
+                operation_id=operation.id,
+                resource_id=new_resource_id
+            ))
+            return out
+        new_res = self.db.query(models.Resource).filter(
+            models.Resource.id == new_resource_id
+        ).first()
+        if not new_res:
+            out.append(ConstraintViolation(
+                violation_type='invalid_resource',
+                severity='error',
+                message='目标资源不存在',
+                operation_id=operation.id,
+                resource_id=new_resource_id
+            ))
+            return out
+        allowed = False
+        if ro.resource_id:
+            ref = self.db.query(models.Resource).filter(
+                models.Resource.id == ro.resource_id
+            ).first()
+            if ref and ref.work_center_id is not None and new_res.work_center_id is not None:
+                allowed = ref.work_center_id == new_res.work_center_id
+            elif ro.resource_id == new_resource_id:
+                allowed = True
+        elif ro.work_center_id is not None and new_res.work_center_id is not None:
+            allowed = ro.work_center_id == new_res.work_center_id
+        if not allowed:
+            out.append(ConstraintViolation(
+                violation_type='invalid_resource',
+                severity='error',
+                message='目标资源与工艺路线资源不在同一工作中心，不允许拖拽到该资源',
+                operation_id=operation.id,
+                resource_id=new_resource_id,
+                details={'routing_operation_id': ro.id}
+            ))
+        return out
+
+    def check_whole_order_shift(
+        self,
+        operation_id: int,
+        new_start: datetime,
+        new_resource_id: int = None,
+        schedule_overlay: Optional[Dict[int, Any]] = None,
+    ) -> List[ConstraintViolation]:
+        """整单已排程工序同一时间平移（锚点工序可换资源），用于 Shift+拖拽。"""
+        violations: List[ConstraintViolation] = []
+        new_start = to_naive_utc(new_start)
+        if new_start is None:
+            violations.append(ConstraintViolation(
+                violation_type='invalid_time',
+                severity='error',
+                message='新的开始时间无效',
+                operation_id=operation_id
+            ))
+            return violations
+
+        operation = self.db.query(models.Operation).filter(
+            models.Operation.id == operation_id
+        ).first()
+        if not operation:
+            violations.append(ConstraintViolation(
+                violation_type='not_found',
+                severity='error',
+                message='工序不存在',
+                operation_id=operation_id
+            ))
+            return violations
+        if operation.run_time is None:
+            violations.append(ConstraintViolation(
+                violation_type='missing_runtime',
+                severity='error',
+                message='工序运行时间未维护，无法调整排程',
+                operation_id=operation_id
+            ))
+            return violations
+        eff_start, _, eff_res = self._eff_schedule(operation, schedule_overlay)
+        if eff_start is None:
+            violations.append(ConstraintViolation(
+                violation_type='unscheduled_operation',
+                severity='error',
+                message='工序尚未排程，无法通过拖拽调整',
+                operation_id=operation_id,
+                order_id=operation.order_id
+            ))
+            return violations
+        order = operation.order
+        if not order:
+            return violations
+
+        delta = new_start - eff_start
+        order_ops = self.db.query(models.Operation).filter(
+            models.Operation.order_id == order.id
+        ).order_by(models.Operation.sequence).all()
+        scheduled_ops = [
+            op for op in order_ops
+            if self._eff_schedule(op, schedule_overlay)[0] is not None
+            and self._eff_schedule(op, schedule_overlay)[1] is not None
+        ]
+        if not scheduled_ops:
+            return violations
+
+        moving_ids = {op.id for op in scheduled_ops}
+        projections: List[tuple] = []
+        for op in scheduled_ops:
+            es, ee, er = self._eff_schedule(op, schedule_overlay)
+            if op.id == operation.id:
+                res = new_resource_id if new_resource_id is not None else er
+                ps = new_start
+                pe = new_start + timedelta(hours=op.run_time)
+            else:
+                res = er
+                ps = es + delta
+                pe = ee + delta
+            projections.append((op, ps, pe, res))
+
+        if new_resource_id is not None and new_resource_id != eff_res:
+            violations.extend(self._cross_resource_violations(operation, new_resource_id))
+            if any(v.severity == 'error' for v in violations):
+                return violations
+
+        projections.sort(key=lambda x: x[0].sequence)
+        for i in range(len(projections) - 1):
+            _, _, e1, _ = projections[i]
+            _, s2, _, _ = projections[i + 1]
+            if e1 > s2:
+                violations.append(ConstraintViolation(
+                    violation_type='sequence_violation',
+                    severity='error',
+                    message=f'平移后将违反工序顺序：{projections[i][0].name} 与 {projections[i + 1][0].name}',
+                    operation_id=operation_id,
+                    order_id=order.id
+                ))
+                break
+
+        all_ids = set()
+        for row in self.db.query(models.Operation.id).filter(
+            models.Operation.scheduled_start != None
+        ).all():
+            all_ids.add(row[0])
+        if schedule_overlay:
+            all_ids |= set(schedule_overlay.keys())
+
+        for op, ps, pe, res_id in projections:
+            if res_id is None:
+                continue
+            for oid in all_ids:
+                if oid == op.id:
+                    continue
+                o = self.db.query(models.Operation).filter(models.Operation.id == oid).first()
+                if not o:
+                    continue
+                if o.order_id == order.id and oid in moving_ids:
+                    continue
+                os_t, oe_t, ors = self._eff_schedule(o, schedule_overlay)
+                if os_t is None or oe_t is None or ors is None:
+                    continue
+                if ors != res_id:
+                    continue
+                if ps < oe_t and pe > os_t:
+                    violations.append(ConstraintViolation(
+                        violation_type='resource_conflict',
+                        severity='error',
+                        message=f'整单平移将导致工序 {op.name} 与 {o.name} 在资源上冲突',
+                        operation_id=op.id,
+                        resource_id=res_id,
+                        details={'conflicting_operation_id': o.id}
+                    ))
+
         return violations
